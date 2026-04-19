@@ -12,6 +12,9 @@ A step-by-step record of every feature added to the game, with the most importan
 4. [Stage 4 — Camera-Relative 8-Dir Movement, Jump & Lava Tiles](#stage-4)
 5. [Stage 5 — FPS Counter & Player Facing Fix](#stage-5)
 6. [Stage 6 — Corner Sliding & Version Overlay](#stage-6)
+7. [Stage 7 — Pause Menu & Settings Panel](#stage-7)
+8. [Stage 8 — Axes Helper, Labels & Orientation HUD](#stage-8)
+9. [Stage 9 — Mouse Hover Raycast & Tile Highlight](#stage-9)
 
 ---
 
@@ -575,6 +578,265 @@ Bumping the version is now a one-line edit to `version.txt`; Docker's volume mou
 
 ---
 
+<a name="stage-7"></a>
+## Stage 7 — Pause Menu & Settings Panel
+
+### Goal
+Add a pause state (P key) and a full in-game settings panel (Esc key) that lets every tunable constant be changed live — with sliders, manual number inputs, per-row reset buttons, and a global "Restore Defaults" — without reloading the page.
+
+---
+
+### Tunable Constants
+
+All gameplay constants that used to be `const` were changed to `let` so the settings panel can mutate them at runtime:
+
+```js
+let viewSize            = 10;     // orthographic frustum half-size
+let moveDelay           = 0.13;   // seconds between tile steps
+let jumpSpeed           = 7.5;
+let gravity             = 22;
+let camFollowSpeed      = 8;
+let cornerSlidingEnabled = true;
+```
+
+A `DEFAULTS` object stores the original values and is the single source of truth for the reset buttons:
+
+```js
+const DEFAULTS = {
+  viewSize: 10, moveDelay: 130, jumpSpeed: 7.5,
+  gravity: 22,  camFollowSpeed: 8, fogDensity: 0.032,
+  cornerSliding: true, showFps: true, showCompass: true,
+  showRay: true, showAxes: false, hoverRaycast: true,
+};
+```
+
+---
+
+### Pause State
+
+`isPaused` is a boolean checked at the top of `processInput` and at the start of the keydown handler. P toggles it; a full-screen `#pause-overlay` div is shown/hidden via a CSS class.
+
+```js
+let isPaused = false;
+
+function setPaused(val) {
+  isPaused = val;
+  pauseOverlay.classList.toggle('hidden', !isPaused);
+}
+
+// In processInput:
+if (isPaused) return;
+```
+
+---
+
+### Settings Panel Architecture
+
+The settings panel is a plain HTML form. Each tunable setting has a `<input type="range">` and a `<input type="number">` kept in sync by `linkControls()`:
+
+```js
+function linkControls(sliderId, inputId, min, max) {
+  const slider = document.getElementById(sliderId);
+  const input  = document.getElementById(inputId);
+  slider.addEventListener('input', () => { input.value = slider.value; });
+  input.addEventListener('input',  () => {
+    const v = parseFloat(input.value);
+    if (!isNaN(v)) slider.value = Math.max(min, Math.min(max, v));
+  });
+}
+```
+
+`syncMenuToState()` populates all controls from the live game variables whenever the menu opens, so the sliders always reflect the current state rather than stale defaults.
+
+**Save & Apply** reads every control and applies the values immediately. The zoom change additionally calls `camera.updateProjectionMatrix()` so the viewport updates without a reload:
+
+```js
+document.getElementById('btn-save').addEventListener('click', () => {
+  moveDelay      = parseFloat(document.getElementById('n-move-delay').value) / 1000;
+  jumpSpeed      = parseFloat(document.getElementById('n-jump-speed').value);
+  // ...
+  const newViewSize = parseFloat(document.getElementById('n-zoom').value);
+  if (newViewSize !== viewSize) {
+    viewSize = newViewSize;
+    camera.left  = -viewSize * aspect;  camera.right = viewSize * aspect;
+    camera.top   =  viewSize;           camera.bottom = -viewSize;
+    camera.updateProjectionMatrix();    // ← live zoom without reload
+  }
+  scene.fog.density = parseFloat(document.getElementById('n-fog').value);
+  closeSettings();
+});
+```
+
+---
+
+### Per-Row Reset Buttons
+
+Each settings row has a `⟳` button carrying a `data-reset` attribute naming the DEFAULTS key. A single delegated listener on the panel handles all of them:
+
+```js
+document.getElementById('settings-panel').addEventListener('click', e => {
+  const btn = e.target.closest('.btn-reset');
+  if (btn) applyDefault(btn.dataset.reset);
+});
+```
+
+`applyDefault(key)` looks up the key in `DEFAULTS` and sets the matching controls — slider and number input together — via `setControls()`.
+
+---
+
+<a name="stage-8"></a>
+## Stage 8 — Axes Helper, Labels & Orientation HUD
+
+### Goal
+Add an opt-in debugging gizmo that shows the X/Y/Z world axes in their classic red/green/blue colours, with legible letter labels at each tip, and a live pitch/yaw/roll readout that updates as the camera orbits.
+
+---
+
+### Axes Helper
+
+Three.js provides `THREE.AxesHelper(size)` built-in. It draws three lines from the origin — X red, Y green, Z blue — each `size` units long. Hidden by default; toggled via Settings → Visual → Show Axes.
+
+```js
+const axesHelper = new THREE.AxesHelper(4);
+axesHelper.visible = false;
+scene.add(axesHelper);
+```
+
+---
+
+### Sprite Labels
+
+The axis letters are canvas-texture `THREE.Sprite` objects attached as children of `axesHelper`, so they automatically show and hide with it. Sprites always face the camera, keeping the letters readable from any orbit angle.
+
+```js
+(function addAxisLabels() {
+  const specs = [
+    { text: 'X', color: '#ff4444', pos: [4.6, 0,   0  ] },
+    { text: 'Y', color: '#44dd44', pos: [0,   4.6, 0  ] },
+    { text: 'Z', color: '#4499ff', pos: [0,   0,   4.6] },
+  ];
+  specs.forEach(({ text, color, pos }) => {
+    const c  = document.createElement('canvas');
+    c.width  = c.height = 64;
+    const cx = c.getContext('2d');
+    cx.font = 'bold 44px Arial';
+    cx.fillStyle = color;
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
+    cx.fillText(text, 32, 34);
+
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false })
+    );
+    sprite.scale.set(0.7, 0.7, 1);
+    sprite.position.set(...pos);
+    axesHelper.add(sprite);   // ← child of axesHelper, hides with it
+  });
+})();
+```
+
+---
+
+### Pitch / Yaw / Roll HUD
+
+A `#orientation` div in the bottom-right shows camera orientation. Yaw tracks `currentCamAngle` live; pitch and roll are the fixed values of the isometric camera.
+
+```js
+// In animate(), only when axesHelper is visible:
+if (axesHelper.visible) {
+  const yawDeg   = (((currentCamAngle * 180 / Math.PI) % 360) + 360) % 360;
+  const pitchDeg = Math.atan2(CAM_HEIGHT, CAM_RADIUS) * 180 / Math.PI; // ~35.3°
+  orientationEl.textContent =
+    `yaw   ${yawDeg.toFixed(1)}°\npitch ${pitchDeg.toFixed(1)}°\nroll  0.0°`;
+  orientationEl.style.display = '';
+} else {
+  orientationEl.style.display = 'none';
+}
+```
+
+Pitch is computed from `CAM_HEIGHT` and `CAM_RADIUS` rather than hard-coded, so if the camera elevation ever changes the display stays correct.
+
+---
+
+<a name="stage-9"></a>
+## Stage 9 — Mouse Hover Raycast & Tile Highlight
+
+### Goal
+Cast a ray from the camera through the mouse cursor each frame to identify which tile is under the pointer. Highlight that tile visually, store it in state as `hoveredTile`, and display its metadata in the HUD.
+
+---
+
+### Raycaster Setup
+
+All 289 tile meshes are collected into a flat `tileMeshes` array during grid construction. `THREE.Raycaster.setFromCamera()` handles the orthographic-camera math and intersects the list each frame.
+
+```js
+const tileMeshes = [];   // populated during tile creation loop
+// tile = new THREE.Mesh(...); tileMeshes.push(tile);
+
+const raycaster = new THREE.Raycaster();
+const mouse     = new THREE.Vector2(Infinity, Infinity);
+
+window.addEventListener('mousemove', e => {
+  mouse.x =  (e.clientX / window.innerWidth)  * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+});
+window.addEventListener('mouseleave', () => { mouse.set(Infinity, Infinity); });
+```
+
+Setting the mouse to `(Infinity, Infinity)` on `mouseleave` ensures the raycaster misses all tiles and the highlight disappears cleanly when the cursor exits the window.
+
+---
+
+### Per-Frame Hover Detection
+
+Each frame the raycaster is fired. On a hit, the grid coordinates are recovered by rounding the mesh's world position (tiles sit at integer XZ coordinates).
+
+```js
+raycaster.setFromCamera(mouse, camera);
+const hits = raycaster.intersectObjects(tileMeshes);
+
+if (hits.length > 0) {
+  const m  = hits[0].object;
+  const tx = Math.round(m.position.x);   // tile integer coords
+  const tz = Math.round(m.position.z);
+  const td = tileMap[tx]?.[tz];
+
+  hoveredTile = td ? { x: tx, z: tz, type: td.type, walkable: td.walkable } : null;
+} else {
+  hoveredTile = null;
+}
+```
+
+---
+
+### Tile Highlight
+
+A single reusable `PlaneGeometry` quad is repositioned to the hovered tile each frame rather than creating a new mesh per tile. It sits 5 mm above the tile surface (`y = 0.005`) and pulses its opacity with a sine wave.
+
+```js
+const hoverHighlight = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.92, 0.92),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true,
+                                 opacity: 0.25, depthWrite: false })
+);
+hoverHighlight.rotation.x = -Math.PI / 2;
+hoverHighlight.position.y = 0.005;
+hoverHighlight.visible    = false;
+scene.add(hoverHighlight);
+
+// In animate() on a hit:
+hoverHighlight.position.x           = tx;
+hoverHighlight.position.z           = tz;
+hoverHighlight.material.color.setHex(td?.type === 'lava' ? 0xff8844 : 0xffffff);
+hoverHighlight.material.opacity     = 0.18 + Math.sin(t * 5) * 0.07;
+hoverHighlight.visible              = true;
+```
+
+Lava tiles receive an orange-tinted highlight to match their warm palette; stone tiles get a neutral white.
+
+---
+
 ## Controls Reference
 
 | Key | Action |
@@ -588,6 +850,8 @@ Bumping the version is now a one-line edit to `version.txt`; Docker's volume mou
 | C | Rotate camera 90° clockwise |
 | Z | Rotate camera 90° counterclockwise |
 | X | Reset camera to default angle |
+| P | Toggle pause (PAUSED overlay) |
+| Esc | Open / close settings panel |
 
 ---
 
@@ -598,7 +862,7 @@ iso-game/
 ├── index.html          # HTML shell — loads Three.js CDN + game.js
 ├── game.js             # All game logic
 ├── style.css           # Fullscreen canvas + HUD styling
-├── version.txt         # Current version string (e.g. 0.6.0)
+├── version.txt         # Current version string (e.g. 0.8.0)
 ├── CHANGELOG.md        # Per-version change history
 ├── CLAUDE.md           # Project rules for Claude (docs + versioning)
 ├── Dockerfile          # nginx:alpine static file server
