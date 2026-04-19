@@ -163,7 +163,7 @@ canvas {
 
 .settings-row {
   display: grid;
-  grid-template-columns: 130px 1fr 64px;
+  grid-template-columns: 130px 1fr 64px 26px;
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
@@ -198,9 +198,9 @@ canvas {
   border-color: rgba(100, 160, 255, 0.55);
 }
 
-/* Checkbox rows use a 2-column layout */
+/* Checkbox rows use a 3-column layout (no slider) */
 .checkbox-row {
-  grid-template-columns: 130px auto;
+  grid-template-columns: 130px auto 26px;
 }
 
 .settings-row input[type="checkbox"] {
@@ -208,6 +208,30 @@ canvas {
   height: 16px;
   accent-color: rgba(100, 160, 255, 0.9);
   cursor: pointer;
+}
+
+/* ── Per-row reset buttons ────────────────────────────────────────────────── */
+.btn-reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.btn-reset:hover {
+  color: rgba(100, 160, 255, 0.9);
+  border-color: rgba(100, 160, 255, 0.4);
+  background: rgba(100, 160, 255, 0.08);
 }
 
 /* ── Settings buttons ─────────────────────────────────────────────────────── */
@@ -227,6 +251,18 @@ canvas {
   border: 1px solid rgba(255, 255, 255, 0.15);
   cursor: pointer;
   transition: background 0.15s;
+}
+
+#btn-reset-all {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 180, 80, 0.8);
+  border-color: rgba(255, 180, 80, 0.25);
+  margin-right: auto; /* push to left, save/close stay right */
+}
+
+#btn-reset-all:hover {
+  background: rgba(255, 180, 80, 0.12);
+  border-color: rgba(255, 180, 80, 0.5);
 }
 
 #btn-save {

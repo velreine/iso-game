@@ -22,6 +22,20 @@ let gravity             = 22;     // downward acceleration
 let camFollowSpeed      = 8;      // camera position lerp rate
 let cornerSlidingEnabled = true;  // auto-slide along obstacles
 
+// Default values — used by the settings menu reset buttons
+const DEFAULTS = {
+  viewSize:        10,
+  moveDelay:       130,   // stored as ms for the UI (game uses seconds)
+  jumpSpeed:       7.5,
+  gravity:         22,
+  camFollowSpeed:  8,
+  fogDensity:      0.032,
+  cornerSliding:   true,
+  showFps:         true,
+  showCompass:     true,
+  showRay:         true,
+};
+
 // ─── Camera ───────────────────────────────────────────────────────────────────
 let aspect = window.innerWidth / window.innerHeight;
 const camera = new THREE.OrthographicCamera(
@@ -520,6 +534,35 @@ linkControls('s-gravity',    'n-gravity',    10,   40);
 linkControls('s-cam-speed',  'n-cam-speed',  2,    20);
 linkControls('s-zoom',       'n-zoom',       6,    18);
 linkControls('s-fog',        'n-fog',        0,    0.08);
+
+// Apply a single default value to its control(s)
+function applyDefault(key) {
+  switch (key) {
+    case 'moveDelay':      setControls('s-move-delay', 'n-move-delay', DEFAULTS.moveDelay); break;
+    case 'jumpSpeed':      setControls('s-jump-speed', 'n-jump-speed', DEFAULTS.jumpSpeed); break;
+    case 'gravity':        setControls('s-gravity',    'n-gravity',    DEFAULTS.gravity); break;
+    case 'camFollowSpeed': setControls('s-cam-speed',  'n-cam-speed',  DEFAULTS.camFollowSpeed); break;
+    case 'viewSize':       setControls('s-zoom',       'n-zoom',       DEFAULTS.viewSize); break;
+    case 'fogDensity':     setControls('s-fog',        'n-fog',        DEFAULTS.fogDensity); break;
+    case 'cornerSliding':  document.getElementById('s-corner-sliding').checked = DEFAULTS.cornerSliding; break;
+    case 'showFps':        document.getElementById('s-show-fps').checked       = DEFAULTS.showFps; break;
+    case 'showCompass':    document.getElementById('s-show-compass').checked   = DEFAULTS.showCompass; break;
+    case 'showRay':        document.getElementById('s-show-ray').checked       = DEFAULTS.showRay; break;
+  }
+}
+
+// Restore all settings controls to their defaults
+function resetAllDefaults() {
+  Object.keys(DEFAULTS).forEach(applyDefault);
+}
+
+// Delegated handler for individual per-row reset buttons
+document.getElementById('settings-panel').addEventListener('click', e => {
+  const btn = e.target.closest('.btn-reset');
+  if (btn) applyDefault(btn.dataset.reset);
+});
+
+document.getElementById('btn-reset-all').addEventListener('click', resetAllDefaults);
 
 // Save & Apply
 document.getElementById('btn-save').addEventListener('click', () => {

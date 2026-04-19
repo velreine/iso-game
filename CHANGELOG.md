@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.1] - 2026-04-19
+
+### Added
+- **Per-setting reset buttons** — each settings row has a small `⟳` button that
+  restores only that value to its default without touching anything else
+- **Restore Defaults button** — resets all settings controls to their defaults
+  at once (bottom-left of the settings panel)
+
+---
+
 ## [0.7.0] - 2026-04-19
 
 ### Added
