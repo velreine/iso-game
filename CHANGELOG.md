@@ -6,6 +6,27 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.0] - 2026-04-19
+
+### Added
+- **Pause (P key)** — pressing P freezes all game logic and shows a full-screen
+  `PAUSED` overlay with a dim backdrop; pressing P again resumes
+- **Settings menu (Esc key)** — opens a styled panel with six tunable sliders,
+  each paired with a manual number input for precise values:
+  - *Move Delay (ms)* — time between steps (50–300 ms)
+  - *Jump Speed* — initial vertical velocity (3–15)
+  - *Gravity* — downward acceleration (10–40)
+  - *Camera Follow Speed* — exponential-lerp constant (2–20)
+  - *Zoom* — orthographic frustum half-size (6–18)
+  - *Fog Density* — exponential fog density (0–0.08)
+- **Settings toggles** — four checkboxes: Corner Sliding, Show FPS,
+  Show Compass, Show Eye Ray
+- **Save & Apply** — applies all settings live (no page reload); zoom change
+  calls `camera.updateProjectionMatrix()` immediately
+- **HUD hint** updated to mention P = Pause and Esc = Settings
+
+---
+
 ## [0.6.0] - 2026-04-19
 
 ### Added

@@ -9,9 +9,81 @@
 <body>
   <div id="fps">-- fps</div>
   <div id="version">v?.?.?</div>
-  <div id="hud">↑↓←→ / WASD &nbsp;Move &nbsp;|&nbsp; Space &nbsp;Jump &nbsp;|&nbsp; Z / C &nbsp;Rotate Cam &nbsp;|&nbsp; X &nbsp;Reset Cam</div>
+  <div id="hud">↑↓←→ / WASD &nbsp;Move &nbsp;|&nbsp; Space &nbsp;Jump &nbsp;|&nbsp; Z / C &nbsp;Rotate &nbsp;|&nbsp; P &nbsp;Pause &nbsp;|&nbsp; Esc &nbsp;Settings</div>
   <div id="coords">0, 0</div>
   <div id="tile-info"></div>
+
+  <!-- Pause overlay -->
+  <div id="pause-overlay" class="hidden">
+    <div id="pause-text">PAUSED</div>
+    <div id="pause-hint">Press P to resume</div>
+  </div>
+
+  <!-- Settings overlay -->
+  <div id="settings-overlay" class="hidden">
+    <div id="settings-panel">
+      <div id="settings-title">Settings</div>
+
+      <div class="settings-section-label">Movement</div>
+      <div class="settings-row">
+        <label for="s-move-delay">Move Delay (ms)</label>
+        <input type="range"  id="s-move-delay" min="50"  max="300"  step="1"    />
+        <input type="number" id="n-move-delay" min="50"  max="300"  step="1"    />
+      </div>
+      <div class="settings-row checkbox-row">
+        <label for="s-corner-sliding">Corner Sliding</label>
+        <input type="checkbox" id="s-corner-sliding" />
+      </div>
+
+      <div class="settings-section-label">Physics</div>
+      <div class="settings-row">
+        <label for="s-jump-speed">Jump Speed</label>
+        <input type="range"  id="s-jump-speed" min="3"   max="15"   step="0.1"  />
+        <input type="number" id="n-jump-speed" min="3"   max="15"   step="0.1"  />
+      </div>
+      <div class="settings-row">
+        <label for="s-gravity">Gravity</label>
+        <input type="range"  id="s-gravity"    min="10"  max="40"   step="0.5"  />
+        <input type="number" id="n-gravity"    min="10"  max="40"   step="0.5"  />
+      </div>
+
+      <div class="settings-section-label">Camera</div>
+      <div class="settings-row">
+        <label for="s-cam-speed">Follow Speed</label>
+        <input type="range"  id="s-cam-speed"  min="2"   max="20"   step="0.5"  />
+        <input type="number" id="n-cam-speed"  min="2"   max="20"   step="0.5"  />
+      </div>
+      <div class="settings-row">
+        <label for="s-zoom">Zoom</label>
+        <input type="range"  id="s-zoom"       min="6"   max="18"   step="0.5"  />
+        <input type="number" id="n-zoom"       min="6"   max="18"   step="0.5"  />
+      </div>
+
+      <div class="settings-section-label">Visual</div>
+      <div class="settings-row">
+        <label for="s-fog">Fog Density</label>
+        <input type="range"  id="s-fog"        min="0"   max="0.08" step="0.001"/>
+        <input type="number" id="n-fog"        min="0"   max="0.08" step="0.001"/>
+      </div>
+      <div class="settings-row checkbox-row">
+        <label for="s-show-fps">Show FPS</label>
+        <input type="checkbox" id="s-show-fps" />
+      </div>
+      <div class="settings-row checkbox-row">
+        <label for="s-show-compass">Show Compass</label>
+        <input type="checkbox" id="s-show-compass" />
+      </div>
+      <div class="settings-row checkbox-row">
+        <label for="s-show-ray">Show Eye Ray</label>
+        <input type="checkbox" id="s-show-ray" />
+      </div>
+
+      <div id="settings-buttons">
+        <button id="btn-save">Save &amp; Apply</button>
+        <button id="btn-close">Close</button>
+      </div>
+    </div>
+  </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="game.js"></script>

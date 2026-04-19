@@ -5,24 +5,28 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0d1117);
 scene.fog = new THREE.FogExp2(0x0d1117, 0.032);
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const VIEW_SIZE         = 10;
+// ─── Constants (fixed) ────────────────────────────────────────────────────────
 const CAM_HEIGHT        = 18;
-const CAM_RADIUS        = 18 * Math.SQRT2;   // keeps camera at (18,18,18) at default angle
+const CAM_RADIUS        = 18 * Math.SQRT2;
 const DEFAULT_CAM_ANGLE = Math.PI / 4;
-const GRID_HALF         = 8;                 // grid spans −8 … +8
+const GRID_HALF         = 8;
 const TILE_THICKNESS    = 0.22;
 const TILE_GAP          = 0.06;
 const PLAYER_SIZE       = 0.65;
-const MOVE_DELAY        = 0.13;              // seconds between steps
-const JUMP_SPEED        = 7.5;              // initial upward velocity
-const GRAVITY           = 22;              // downward acceleration
+
+// ─── Tunable game settings (adjustable via the settings menu) ─────────────────
+let viewSize            = 10;     // orthographic frustum half-size
+let moveDelay           = 0.13;   // seconds between tile steps
+let jumpSpeed           = 7.5;    // initial upward velocity
+let gravity             = 22;     // downward acceleration
+let camFollowSpeed      = 8;      // camera position lerp rate
+let cornerSlidingEnabled = true;  // auto-slide along obstacles
 
 // ─── Camera ───────────────────────────────────────────────────────────────────
 let aspect = window.innerWidth / window.innerHeight;
 const camera = new THREE.OrthographicCamera(
-  -VIEW_SIZE * aspect, VIEW_SIZE * aspect,
-   VIEW_SIZE,         -VIEW_SIZE,
+  -viewSize * aspect, viewSize * aspect,
+   viewSize,         -viewSize,
   0.1, 500
 );
 camera.position.set(CAM_HEIGHT, CAM_HEIGHT, CAM_HEIGHT);
@@ -235,18 +239,33 @@ window.addEventListener('keydown', e => {
   const managed = new Set([
     'ArrowUp','ArrowDown','ArrowLeft','ArrowRight',
     'KeyW','KeyA','KeyS','KeyD',
-    'KeyZ','KeyC','KeyX','Space',
+    'KeyZ','KeyC','KeyX','Space','KeyP','Escape',
   ]);
   if (managed.has(e.code)) e.preventDefault();
 
   if (!e.repeat) {
+    // Pause toggle (P) — only when settings menu is closed
+    if (e.code === 'KeyP' && !settingsVisible) {
+      setPaused(!isPaused);
+      return;
+    }
+
+    // Settings menu (Escape)
+    if (e.code === 'Escape') {
+      settingsVisible ? closeSettings() : openSettings();
+      return;
+    }
+
+    // Ignore all game input while paused or in menu
+    if (isPaused) return;
+
     // Camera rotation — fires once per keypress
     if (e.code === 'KeyC') {
       cameraRotStep  = (cameraRotStep + 1) % 4;
       targetCamAngle = DEFAULT_CAM_ANGLE - cameraRotStep * (Math.PI / 2);
     }
     if (e.code === 'KeyZ') {
-      cameraRotStep  = (cameraRotStep + 3) % 4;  // +3 mod 4 = −1
+      cameraRotStep  = (cameraRotStep + 3) % 4;
       targetCamAngle = DEFAULT_CAM_ANGLE - cameraRotStep * (Math.PI / 2);
     }
     if (e.code === 'KeyX') {
@@ -256,7 +275,7 @@ window.addEventListener('keydown', e => {
 
     // Jump — only when grounded
     if (e.code === 'Space' && isGrounded) {
-      jumpVelocity = JUMP_SPEED;
+      jumpVelocity = jumpSpeed;
       isGrounded   = false;
     }
   }
@@ -293,6 +312,7 @@ function isWalkable(x, z) {
 }
 
 function processInput(dt) {
+  if (isPaused) return;
   moveCooldown -= dt;
   if (moveCooldown > 0) return;
 
@@ -342,29 +362,22 @@ function processInput(dt) {
 
   const moved = tryMove(nx, nz, dx, dz);
 
-  if (!moved && dx !== 0 && dz !== 0) {
-    // ── Corner slide ─────────────────────────────────────────────────────
-    // Primary diagonal blocked; try each axis component so the player
-    // glides around corners rather than stopping dead.
-    //   e.g. West (dx=-1, dz=+1) blocked → try NW (dx=-1, dz=0) then SW (dx=0, dz=+1)
-    //        East (dx=+1, dz=-1) blocked → try SE (dx=+1, dz= 0) then NE (dx=0, dz=-1)
-    const slid = tryMove(grid.x + dx, grid.z,    dx,  0)
-              || tryMove(grid.x,    grid.z + dz,   0, dz);
+  if (!moved) {
+    let slid = false;
+    if (dx !== 0 && dz !== 0 && cornerSlidingEnabled) {
+      // ── Corner slide ───────────────────────────────────────────────────
+      slid = tryMove(grid.x + dx, grid.z,    dx,  0)
+          || tryMove(grid.x,    grid.z + dz,   0, dz);
+    }
     if (!slid) {
       const tile = tileMap[nx]?.[nz];
       if (tile && !tile.walkable) {
         tileInfoEl.textContent = `tile: ${tile.type}  walkable: ${tile.walkable}  ← blocked`;
       }
     }
-  } else if (!moved) {
-    // Pure-axis move (two keys held) — no slide applicable
-    const tile = tileMap[nx]?.[nz];
-    if (tile && !tile.walkable) {
-      tileInfoEl.textContent = `tile: ${tile.type}  walkable: ${tile.walkable}  ← blocked`;
-    }
   }
 
-  moveCooldown = MOVE_DELAY;
+  moveCooldown = moveDelay;
 }
 
 // ─── Animation Loop ───────────────────────────────────────────────────────────
@@ -388,7 +401,7 @@ function animate() {
 
   // ── Jump physics ──────────────────────────────────────────────────────────
   if (!isGrounded) {
-    jumpVelocity -= GRAVITY * dt;
+    jumpVelocity -= gravity * dt;
     playerJumpY  += jumpVelocity * dt;
     if (playerJumpY <= 0) {
       playerJumpY  = 0;
@@ -422,7 +435,7 @@ function animate() {
   while (diff < -Math.PI) diff += 2 * Math.PI;
   currentCamAngle += diff * (1 - Math.exp(-dt * 8));
 
-  const camK    = 1 - Math.exp(-dt * 8);
+  const camK    = 1 - Math.exp(-dt * camFollowSpeed);
   const tgtCamX = playerMesh.position.x + CAM_RADIUS * Math.cos(currentCamAngle);
   const tgtCamZ = playerMesh.position.z + CAM_RADIUS * Math.sin(currentCamAngle);
   camera.position.x += (tgtCamX - camera.position.x) * camK;
@@ -437,10 +450,103 @@ function animate() {
 // ─── Resize ───────────────────────────────────────────────────────────────────
 window.addEventListener('resize', () => {
   aspect = window.innerWidth / window.innerHeight;
-  camera.left  = -VIEW_SIZE * aspect;
-  camera.right =  VIEW_SIZE * aspect;
+  camera.left  = -viewSize * aspect;
+  camera.right =  viewSize * aspect;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+// ─── Pause & Settings Menu ────────────────────────────────────────────────────
+let isPaused       = false;
+let settingsVisible = false;
+
+const pauseOverlay    = document.getElementById('pause-overlay');
+const settingsOverlay = document.getElementById('settings-overlay');
+
+function setPaused(val) {
+  isPaused = val;
+  pauseOverlay.classList.toggle('hidden', !isPaused);
+}
+
+function openSettings() {
+  isPaused        = true;
+  settingsVisible = true;
+  pauseOverlay.classList.add('hidden');
+  settingsOverlay.classList.remove('hidden');
+  syncMenuToState();
+}
+
+function closeSettings() {
+  settingsVisible = false;
+  isPaused        = false;
+  settingsOverlay.classList.add('hidden');
+}
+
+// ── Slider ↔ number input sync ───────────────────────────────────────────────
+function linkControls(sliderId, inputId, min, max) {
+  const slider = document.getElementById(sliderId);
+  const input  = document.getElementById(inputId);
+  slider.addEventListener('input', () => { input.value = slider.value; });
+  input.addEventListener('input',  () => {
+    const v = parseFloat(input.value);
+    if (!isNaN(v)) slider.value = Math.max(min, Math.min(max, v));
+  });
+}
+
+function setControls(sliderId, inputId, value) {
+  const rounded = Math.round(value * 10000) / 10000;  // avoid float noise
+  document.getElementById(sliderId).value = rounded;
+  document.getElementById(inputId).value  = rounded;
+}
+
+// Populate all controls with the live game state
+function syncMenuToState() {
+  setControls('s-move-delay',  'n-move-delay',  Math.round(moveDelay * 1000));
+  document.getElementById('s-corner-sliding').checked = cornerSlidingEnabled;
+  setControls('s-jump-speed',  'n-jump-speed',  jumpSpeed);
+  setControls('s-gravity',     'n-gravity',     gravity);
+  setControls('s-cam-speed',   'n-cam-speed',   camFollowSpeed);
+  setControls('s-zoom',        'n-zoom',        viewSize);
+  setControls('s-fog',         'n-fog',         scene.fog.density);
+  document.getElementById('s-show-fps').checked     = fpsEl.style.display     !== 'none';
+  document.getElementById('s-show-compass').checked = compassCanvas.style.display !== 'none';
+  document.getElementById('s-show-ray').checked     = rayArrow.visible;
+}
+
+// Wire slider ↔ input pairs
+linkControls('s-move-delay', 'n-move-delay', 50,   300);
+linkControls('s-jump-speed', 'n-jump-speed', 3,    15);
+linkControls('s-gravity',    'n-gravity',    10,   40);
+linkControls('s-cam-speed',  'n-cam-speed',  2,    20);
+linkControls('s-zoom',       'n-zoom',       6,    18);
+linkControls('s-fog',        'n-fog',        0,    0.08);
+
+// Save & Apply
+document.getElementById('btn-save').addEventListener('click', () => {
+  moveDelay            = parseFloat(document.getElementById('n-move-delay').value) / 1000;
+  cornerSlidingEnabled = document.getElementById('s-corner-sliding').checked;
+  jumpSpeed            = parseFloat(document.getElementById('n-jump-speed').value);
+  gravity              = parseFloat(document.getElementById('n-gravity').value);
+  camFollowSpeed       = parseFloat(document.getElementById('n-cam-speed').value);
+
+  const newViewSize = parseFloat(document.getElementById('n-zoom').value);
+  if (newViewSize !== viewSize) {
+    viewSize         = newViewSize;
+    camera.left      = -viewSize * aspect;
+    camera.right     =  viewSize * aspect;
+    camera.top       =  viewSize;
+    camera.bottom    = -viewSize;
+    camera.updateProjectionMatrix();
+  }
+
+  scene.fog.density           = parseFloat(document.getElementById('n-fog').value);
+  fpsEl.style.display         = document.getElementById('s-show-fps').checked     ? '' : 'none';
+  compassCanvas.style.display = document.getElementById('s-show-compass').checked ? '' : 'none';
+  rayArrow.visible            = document.getElementById('s-show-ray').checked;
+
+  closeSettings();
+});
+
+document.getElementById('btn-close').addEventListener('click', closeSettings);
 
 animate();
