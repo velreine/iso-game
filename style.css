@@ -71,6 +71,21 @@ canvas {
   user-select: none;
 }
 
+#hover-info {
+  position: absolute;
+  top: 74px;
+  right: 18px;
+  color: rgba(160, 220, 255, 0.85);
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 4px 12px;
+  border-radius: 4px;
+  pointer-events: none;
+  user-select: none;
+  min-height: 24px;
+}
+
 #orientation {
   position: absolute;
   bottom: 40px;

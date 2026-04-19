@@ -10,6 +10,7 @@
   <div id="fps">-- fps</div>
   <div id="version">v?.?.?</div>
   <div id="orientation" style="display:none"></div>
+  <div id="hover-info"  style="display:none"></div>
   <div id="hud">↑↓←→ / WASD &nbsp;Move &nbsp;|&nbsp; Space &nbsp;Jump &nbsp;|&nbsp; Z / C &nbsp;Rotate &nbsp;|&nbsp; P &nbsp;Pause &nbsp;|&nbsp; Esc &nbsp;Settings</div>
   <div id="coords">0, 0</div>
   <div id="tile-info"></div>
@@ -92,6 +93,11 @@
         <label for="s-show-axes">Show Axes (X/Y/Z)</label>
         <input type="checkbox" id="s-show-axes" />
         <button class="btn-reset" data-reset="showAxes" title="Reset to default">⟳</button>
+      </div>
+      <div class="settings-row checkbox-row">
+        <label for="s-hover-raycast">Hover Raycast</label>
+        <input type="checkbox" id="s-hover-raycast" />
+        <button class="btn-reset" data-reset="hoverRaycast" title="Reset to default">⟳</button>
       </div>
 
       <div id="settings-buttons">

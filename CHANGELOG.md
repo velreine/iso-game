@@ -6,6 +6,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.8.0] - 2026-04-19
+
+### Added
+- **Hover raycast** — `THREE.Raycaster` casts from the camera through the mouse
+  cursor each frame against all tile meshes (the "ceiling-to-floor" ray)
+- **Tile highlight** — a `PlaneGeometry` quad repositions to whichever tile is
+  under the cursor; white for stone tiles, orange-tinted for lava; pulses gently
+- **`hoveredTile` state** — `{ x, z, type, walkable }` updated every frame;
+  cleared when the cursor leaves the window
+- **Hover info HUD** — `#hover-info` overlay (top-right, below tile-info) shows
+  grid coords, tile type, and walkable status for the hovered tile
+- **Settings toggle** — Settings → Visual → Hover Raycast (on by default);
+  disabling hides the highlight and clears the HUD
+
+---
+
 ## [0.7.3] - 2026-04-19
 
 ### Added

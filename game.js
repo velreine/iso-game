@@ -20,7 +20,8 @@ let moveDelay           = 0.13;   // seconds between tile steps
 let jumpSpeed           = 7.5;    // initial upward velocity
 let gravity             = 22;     // downward acceleration
 let camFollowSpeed      = 8;      // camera position lerp rate
-let cornerSlidingEnabled = true;  // auto-slide along obstacles
+let cornerSlidingEnabled  = true;  // auto-slide along obstacles
+let hoverRaycastEnabled   = true;  // mouse hover raycast + tile highlight
 
 // Default values — used by the settings menu reset buttons
 const DEFAULTS = {
@@ -35,6 +36,7 @@ const DEFAULTS = {
   showCompass:     true,
   showRay:         true,
   showAxes:        false,
+  hoverRaycast:    true,
 };
 
 // ─── Camera ───────────────────────────────────────────────────────────────────
@@ -114,7 +116,8 @@ const LAVA_COORDS = new Set([
                   '5,7', '6,7', '7,7',
 ]);
 
-const tileGeom = new THREE.BoxGeometry(1 - TILE_GAP, TILE_THICKNESS, 1 - TILE_GAP);
+const tileGeom  = new THREE.BoxGeometry(1 - TILE_GAP, TILE_THICKNESS, 1 - TILE_GAP);
+const tileMeshes = [];  // flat list used by the hover raycaster
 
 for (let x = -GRID_HALF; x <= GRID_HALF; x++) {
   tileMap[x] = {};
@@ -136,6 +139,7 @@ for (let x = -GRID_HALF; x <= GRID_HALF; x++) {
     tile.position.set(x, -TILE_THICKNESS / 2, z);
     tile.receiveShadow = !isLava;
     scene.add(tile);
+    tileMeshes.push(tile);
 
     tileMap[x][z] = {
       walkable : !isLava,   // ← metadata: lava tiles block movement
@@ -217,6 +221,31 @@ scene.add(axesHelper);
     axesHelper.add(sprite);
   });
 })();
+
+// ─── Mouse hover raycast ─────────────────────────────────────────────────────
+// A single re-positioned plane highlights whichever tile the cursor is over.
+const hoverHighlight = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.92, 0.92),
+  new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.25,
+    depthWrite: false, side: THREE.DoubleSide,
+  })
+);
+hoverHighlight.rotation.x = -Math.PI / 2;
+hoverHighlight.position.y = 0.005;   // just above tile top surface (y=0)
+hoverHighlight.visible = false;
+scene.add(hoverHighlight);
+
+const raycaster   = new THREE.Raycaster();
+const mouse       = new THREE.Vector2(Infinity, Infinity);
+let   hoveredTile = null;   // { x, z, type, walkable } or null
+
+window.addEventListener('mousemove', e => {
+  mouse.x =  (e.clientX / window.innerWidth)  * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+});
+// Clear hover when cursor leaves the window
+window.addEventListener('mouseleave', () => { mouse.set(Infinity, Infinity); });
 
 // ─── Compass (bottom-left) ────────────────────────────────────────────────────
 const CS  = 72;
@@ -344,6 +373,7 @@ const coordsEl   = document.getElementById('coords');
 const tileInfoEl = document.getElementById('tile-info');
 const fpsEl         = document.getElementById('fps');
 const orientationEl = document.getElementById('orientation');
+const hoverInfoEl   = document.getElementById('hover-info');
 let fpsAccum  = 0;
 let fpsFrames = 0;
 
@@ -492,6 +522,40 @@ function animate() {
   camera.position.z += (tgtCamZ - camera.position.z) * camK;
   camera.lookAt(playerMesh.position.x, 0, playerMesh.position.z);
 
+  // ── Mouse hover raycast ───────────────────────────────────────────────────
+  if (hoverRaycastEnabled) {
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(tileMeshes);
+    if (hits.length > 0) {
+      const m  = hits[0].object;
+      const tx = Math.round(m.position.x);
+      const tz = Math.round(m.position.z);
+      const td = tileMap[tx]?.[tz];
+      hoveredTile = td ? { x: tx, z: tz, type: td.type, walkable: td.walkable } : null;
+
+      // Reposition highlight and pulse opacity
+      hoverHighlight.position.x = tx;
+      hoverHighlight.position.z = tz;
+      hoverHighlight.material.color.setHex(td?.type === 'lava' ? 0xff8844 : 0xffffff);
+      hoverHighlight.material.opacity = 0.18 + Math.sin(t * 5) * 0.07;
+      hoverHighlight.visible = true;
+
+      if (hoveredTile) {
+        hoverInfoEl.textContent =
+          `hover  [${tx}, ${tz}]  ${hoveredTile.type}  walkable: ${hoveredTile.walkable}`;
+        hoverInfoEl.style.display = '';
+      }
+    } else {
+      hoveredTile = null;
+      hoverHighlight.visible = false;
+      hoverInfoEl.style.display = 'none';
+    }
+  } else {
+    hoveredTile = null;
+    hoverHighlight.visible = false;
+    hoverInfoEl.style.display = 'none';
+  }
+
   // ── Orientation readout (only when axes helper is visible) ───────────────
   if (axesHelper.visible) {
     const yawDeg   = (((currentCamAngle * 180 / Math.PI) % 360) + 360) % 360;
@@ -571,7 +635,8 @@ function syncMenuToState() {
   document.getElementById('s-show-fps').checked     = fpsEl.style.display     !== 'none';
   document.getElementById('s-show-compass').checked = compassCanvas.style.display !== 'none';
   document.getElementById('s-show-ray').checked     = rayArrow.visible;
-  document.getElementById('s-show-axes').checked    = axesHelper.visible;
+  document.getElementById('s-show-axes').checked        = axesHelper.visible;
+  document.getElementById('s-hover-raycast').checked    = hoverRaycastEnabled;
 }
 
 // Wire slider ↔ input pairs
@@ -596,6 +661,7 @@ function applyDefault(key) {
     case 'showCompass':    document.getElementById('s-show-compass').checked   = DEFAULTS.showCompass; break;
     case 'showRay':        document.getElementById('s-show-ray').checked       = DEFAULTS.showRay; break;
     case 'showAxes':       document.getElementById('s-show-axes').checked      = DEFAULTS.showAxes; break;
+    case 'hoverRaycast':   document.getElementById('s-hover-raycast').checked  = DEFAULTS.hoverRaycast; break;
   }
 }
 
@@ -635,6 +701,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
   compassCanvas.style.display = document.getElementById('s-show-compass').checked ? '' : 'none';
   rayArrow.visible            = document.getElementById('s-show-ray').checked;
   axesHelper.visible          = document.getElementById('s-show-axes').checked;
+  hoverRaycastEnabled         = document.getElementById('s-hover-raycast').checked;
 
   closeSettings();
 });
