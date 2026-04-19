@@ -71,6 +71,23 @@ canvas {
   user-select: none;
 }
 
+#pan-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(255, 210, 80, 0.85);
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 210, 80, 0.25);
+  pointer-events: none;
+  user-select: none;
+}
+
 #hover-info {
   position: absolute;
   top: 74px;

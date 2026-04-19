@@ -15,6 +15,7 @@ A step-by-step record of every feature added to the game, with the most importan
 7. [Stage 7 — Pause Menu & Settings Panel](#stage-7)
 8. [Stage 8 — Axes Helper, Labels & Orientation HUD](#stage-8)
 9. [Stage 9 — Mouse Hover Raycast & Tile Highlight](#stage-9)
+10. [Stage 10 — Camera Pan (Right-Click Drag)](#stage-10)
 
 ---
 
@@ -837,6 +838,75 @@ Lava tiles receive an orange-tinted highlight to match their warm palette; stone
 
 ---
 
+<a name="stage-10"></a>
+## Stage 10 — Camera Pan (Right-Click Drag)
+
+### Goal
+Let the player hold right mouse button and drag to pan the camera across the world independently of the player. While panned, the player moves freely without the camera following. Pressing X re-centres the camera on the player smoothly.
+
+---
+
+### Focus Point Architecture
+
+Previously the camera always orbited around `playerMesh.position`. A new `camFocusX/Z` world-space point replaces it as the orbit centre. When not panned, this point tracks the player via the same exponential lerp the camera position uses; when panned, it is frozen in world space.
+
+```js
+let camFocusX = 0, camFocusZ = 0;
+let isPanMode = false;
+
+// In animate():
+if (!isPanMode) {
+  camFocusX += (playerMesh.position.x - camFocusX) * camK;
+  camFocusZ += (playerMesh.position.z - camFocusZ) * camK;
+}
+
+const tgtCamX = camFocusX + CAM_RADIUS * Math.cos(currentCamAngle);
+const tgtCamZ = camFocusZ + CAM_RADIUS * Math.sin(currentCamAngle);
+camera.lookAt(camFocusX, 0, camFocusZ);
+```
+
+The only change to the camera animation loop is substituting `camFocusX/Z` for `playerMesh.position`. In follow mode the behaviour is identical to before; in pan mode the focus is a fixed world anchor.
+
+---
+
+### Screen-to-World Pan Conversion
+
+Right-drag deltas arrive in screen pixels. Converting to world units requires knowing how many world units fit across the viewport in each axis — which depends on the current orthographic frustum size — and then projecting along the camera's local XZ axes.
+
+```js
+// Pixel → world unit scale (orthographic projection)
+const worldPerPxH = (viewSize * 2 * aspect) / window.innerWidth;
+const worldPerPxV = (viewSize * 2) / window.innerHeight;
+
+// Camera local axes projected onto world XZ
+//   screen-right = (sin α,  0, -cos α)
+//   screen-down  = (cos α,  0,  sin α)
+const sx = Math.sin(currentCamAngle);
+const cx = Math.cos(currentCamAngle);
+
+// Map-style: scene moves WITH the drag
+camFocusX += -dx * worldPerPxH * sx + dy * worldPerPxV * cx;
+camFocusZ +=  dx * worldPerPxH * cx + dy * worldPerPxV * sx;
+isPanMode = true;
+```
+
+The negation on `dx` makes the scene follow the cursor (drag right → tiles move right), consistent with map applications and Blender's viewport pan.
+
+---
+
+### Reset and Cursor Feedback
+
+X already reset the camera orbit angle. It now also sets `isPanMode = false`, which causes the focus point to smoothly lerp back to the player on the next frame via the existing `camK` lerp — no special re-centre animation needed.
+
+While in pan mode the cursor is `grab`; while actively dragging it becomes `grabbing`. A subtle amber badge reads `PAN — X to re-centre` so the player always knows the camera is decoupled.
+
+```js
+renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+// (suppresses the browser right-click menu on the canvas)
+```
+
+---
+
 ## Controls Reference
 
 | Key | Action |
@@ -852,6 +922,7 @@ Lava tiles receive an orange-tinted highlight to match their warm palette; stone
 | X | Reset camera to default angle |
 | P | Toggle pause (PAUSED overlay) |
 | Esc | Open / close settings panel |
+| Right-click drag | Pan camera (decouples from player) |
 
 ---
 

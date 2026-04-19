@@ -6,6 +6,27 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.9.0] - 2026-04-19
+
+### Added
+- **Camera pan** — hold right mouse button and drag to pan the camera in any
+  direction; the camera orbits the panned focus point rather than the player
+- **Player decoupling** — while panned, the player moves freely without the
+  camera following; the camera stays locked on the panned world position
+- **Smooth re-centre** — pressing X resets camera angle (existing) and also
+  cancels pan mode, smoothly re-centring on the player via the existing lerp
+- **Pan indicator** — a subtle amber `PAN — X to re-centre` badge appears at
+  the centre of the screen while the camera is decoupled from the player
+- **Cursor feedback** — cursor changes to `grab` when panned, `grabbing`
+  while dragging; right-click context menu suppressed on the canvas
+
+### Changed
+- HUD hint updated to show `RMB  Pan`
+- Camera orbit now always uses `camFocusX/Z` world point instead of player
+  position directly, enabling clean pan / follow mode switching
+
+---
+
 ## [0.8.0] - 2026-04-19
 
 ### Added

@@ -53,6 +53,13 @@ let cameraRotStep   = 0;
 let targetCamAngle  = DEFAULT_CAM_ANGLE;
 let currentCamAngle = DEFAULT_CAM_ANGLE;
 
+// Camera pan state — right-click drag moves the focus point; X resets it
+let camFocusX = 0;   // world X the camera orbits around (0 = follow player)
+let camFocusZ = 0;   // world Z the camera orbits around
+let isPanMode = false;        // true once the camera has been dragged away
+let isRightDragging = false;  // true while right mouse button is held
+let lastDragX = 0, lastDragY = 0;
+
 // ─── Renderer ─────────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -240,12 +247,57 @@ const raycaster   = new THREE.Raycaster();
 const mouse       = new THREE.Vector2(Infinity, Infinity);
 let   hoveredTile = null;   // { x, z, type, walkable } or null
 
+// Right-click drag → camera pan
+renderer.domElement.addEventListener('mousedown', e => {
+  if (e.button === 2) {
+    isRightDragging = true;
+    lastDragX = e.clientX;
+    lastDragY = e.clientY;
+    renderer.domElement.style.cursor = 'grabbing';
+  }
+});
+window.addEventListener('mouseup', e => {
+  if (e.button === 2) {
+    isRightDragging = false;
+    renderer.domElement.style.cursor = isPanMode ? 'grab' : 'default';
+  }
+});
+// Suppress context menu so right-click doesn't open the browser menu
+renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
 window.addEventListener('mousemove', e => {
+  // Always update the normalised mouse position for hover raycasting
   mouse.x =  (e.clientX / window.innerWidth)  * 2 - 1;
   mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+  // Pan camera when right mouse is held
+  if (isRightDragging) {
+    const dx = e.clientX - lastDragX;
+    const dy = e.clientY - lastDragY;
+    lastDragX = e.clientX;
+    lastDragY = e.clientY;
+
+    if (dx !== 0 || dy !== 0) {
+      // Convert pixel delta → world units (orthographic projection)
+      const worldPerPxH = (viewSize * 2 * aspect) / window.innerWidth;
+      const worldPerPxV = (viewSize * 2) / window.innerHeight;
+      const sx = Math.sin(currentCamAngle);
+      const cx = Math.cos(currentCamAngle);
+
+      // Map-style: scene moves WITH the drag
+      //  • screen-right  = camera local-X = (sx,  0, -cx)
+      //  • screen-down   = camera local-Y↓ = (cx,  0,  sx)
+      camFocusX += -dx * worldPerPxH * sx + dy * worldPerPxV * cx;
+      camFocusZ +=  dx * worldPerPxH * cx + dy * worldPerPxV * sx;
+      isPanMode = true;
+    }
+  }
 });
 // Clear hover when cursor leaves the window
-window.addEventListener('mouseleave', () => { mouse.set(Infinity, Infinity); });
+window.addEventListener('mouseleave', () => {
+  mouse.set(Infinity, Infinity);
+  isRightDragging = false;
+});
 
 // ─── Compass (bottom-left) ────────────────────────────────────────────────────
 const CS  = 72;
@@ -348,6 +400,7 @@ window.addEventListener('keydown', e => {
     if (e.code === 'KeyX') {
       cameraRotStep  = 0;
       targetCamAngle = DEFAULT_CAM_ANGLE;
+      isPanMode      = false;   // camera will smoothly re-center on player
     }
 
     // Jump — only when grounded
@@ -374,6 +427,7 @@ const tileInfoEl = document.getElementById('tile-info');
 const fpsEl         = document.getElementById('fps');
 const orientationEl = document.getElementById('orientation');
 const hoverInfoEl   = document.getElementById('hover-info');
+const panIndicatorEl = document.getElementById('pan-indicator');
 let fpsAccum  = 0;
 let fpsFrames = 0;
 
@@ -514,13 +568,19 @@ function animate() {
   while (diff < -Math.PI) diff += 2 * Math.PI;
   currentCamAngle += diff * (1 - Math.exp(-dt * 8));
 
-  const camK    = 1 - Math.exp(-dt * camFollowSpeed);
-  const tgtCamX = playerMesh.position.x + CAM_RADIUS * Math.cos(currentCamAngle);
-  const tgtCamZ = playerMesh.position.z + CAM_RADIUS * Math.sin(currentCamAngle);
+  // When not panned, smoothly re-centre the focus on the player
+  const camK = 1 - Math.exp(-dt * camFollowSpeed);
+  if (!isPanMode) {
+    camFocusX += (playerMesh.position.x - camFocusX) * camK;
+    camFocusZ += (playerMesh.position.z - camFocusZ) * camK;
+  }
+
+  const tgtCamX = camFocusX + CAM_RADIUS * Math.cos(currentCamAngle);
+  const tgtCamZ = camFocusZ + CAM_RADIUS * Math.sin(currentCamAngle);
   camera.position.x += (tgtCamX - camera.position.x) * camK;
   camera.position.y  = CAM_HEIGHT;
   camera.position.z += (tgtCamZ - camera.position.z) * camK;
-  camera.lookAt(playerMesh.position.x, 0, playerMesh.position.z);
+  camera.lookAt(camFocusX, 0, camFocusZ);
 
   // ── Mouse hover raycast ───────────────────────────────────────────────────
   if (hoverRaycastEnabled) {
@@ -554,6 +614,15 @@ function animate() {
     hoveredTile = null;
     hoverHighlight.visible = false;
     hoverInfoEl.style.display = 'none';
+  }
+
+  // ── Pan indicator ─────────────────────────────────────────────────────────
+  if (isPanMode) {
+    panIndicatorEl.style.display = '';
+    renderer.domElement.style.cursor = isRightDragging ? 'grabbing' : 'grab';
+  } else {
+    panIndicatorEl.style.display = 'none';
+    if (!isRightDragging) renderer.domElement.style.cursor = 'default';
   }
 
   // ── Orientation readout (only when axes helper is visible) ───────────────
