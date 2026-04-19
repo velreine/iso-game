@@ -1,0 +1,11 @@
+services:
+  iso-game:
+    build: .
+    container_name: iso-game
+    ports:
+      - "8081:80"
+    restart: unless-stopped
+    volumes:
+      - ./index.html:/usr/share/nginx/html/index.html:ro
+      - ./game.js:/usr/share/nginx/html/game.js:ro
+      - ./style.css:/usr/share/nginx/html/style.css:ro
