@@ -34,6 +34,7 @@ const DEFAULTS = {
   showFps:         true,
   showCompass:     true,
   showRay:         true,
+  showAxes:        false,
 };
 
 // ─── Camera ───────────────────────────────────────────────────────────────────
@@ -183,6 +184,13 @@ const shadowBlob = new THREE.Mesh(
 shadowBlob.rotation.x = -Math.PI / 2;
 shadowBlob.position.y =  0.002;
 scene.add(shadowBlob);
+
+// ─── Axes helper (X=red, Y=green, Z=blue) ────────────────────────────────────
+// Placed at world origin; arms extend 4 units along each axis.
+// Hidden by default — toggle via Settings → Visual → Show Axes.
+const axesHelper = new THREE.AxesHelper(4);
+axesHelper.visible = false;
+scene.add(axesHelper);
 
 // ─── Compass (bottom-left) ────────────────────────────────────────────────────
 const CS  = 72;
@@ -525,6 +533,7 @@ function syncMenuToState() {
   document.getElementById('s-show-fps').checked     = fpsEl.style.display     !== 'none';
   document.getElementById('s-show-compass').checked = compassCanvas.style.display !== 'none';
   document.getElementById('s-show-ray').checked     = rayArrow.visible;
+  document.getElementById('s-show-axes').checked    = axesHelper.visible;
 }
 
 // Wire slider ↔ input pairs
@@ -548,6 +557,7 @@ function applyDefault(key) {
     case 'showFps':        document.getElementById('s-show-fps').checked       = DEFAULTS.showFps; break;
     case 'showCompass':    document.getElementById('s-show-compass').checked   = DEFAULTS.showCompass; break;
     case 'showRay':        document.getElementById('s-show-ray').checked       = DEFAULTS.showRay; break;
+    case 'showAxes':       document.getElementById('s-show-axes').checked      = DEFAULTS.showAxes; break;
   }
 }
 
@@ -586,6 +596,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
   fpsEl.style.display         = document.getElementById('s-show-fps').checked     ? '' : 'none';
   compassCanvas.style.display = document.getElementById('s-show-compass').checked ? '' : 'none';
   rayArrow.visible            = document.getElementById('s-show-ray').checked;
+  axesHelper.visible          = document.getElementById('s-show-axes').checked;
 
   closeSettings();
 });

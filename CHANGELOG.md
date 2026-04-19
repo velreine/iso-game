@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.2] - 2026-04-19
+
+### Added
+- **Axes helper** — `THREE.AxesHelper` placed at world origin showing X (red),
+  Y (green), and Z (blue) arms, each 4 units long; toggleable via
+  Settings → Visual → Show Axes (off by default)
+
+---
+
 ## [0.7.1] - 2026-04-19
 
 ### Added
