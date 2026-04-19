@@ -281,7 +281,7 @@ let fpsFrames = 0;
 
 // ─── Version Overlay ──────────────────────────────────────────────────────────
 const versionEl = document.getElementById('version');
-fetch('/version.txt')
+fetch('./version.txt')
   .then(r => r.text())
   .then(v => { versionEl.textContent = `v${v.trim()}`; })
   .catch(() => {});
