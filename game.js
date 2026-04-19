@@ -192,6 +192,32 @@ const axesHelper = new THREE.AxesHelper(4);
 axesHelper.visible = false;
 scene.add(axesHelper);
 
+// Canvas-texture sprites for X / Y / Z labels at the tip of each arm.
+// Attached to axesHelper so they show/hide with it automatically.
+(function addAxisLabels() {
+  const specs = [
+    { text: 'X', color: '#ff4444', pos: [4.6, 0,   0  ] },
+    { text: 'Y', color: '#44dd44', pos: [0,   4.6, 0  ] },
+    { text: 'Z', color: '#4499ff', pos: [0,   0,   4.6] },
+  ];
+  specs.forEach(({ text, color, pos }) => {
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 64;
+    const cx = c.getContext('2d');
+    cx.font = 'bold 44px Arial';
+    cx.fillStyle = color;
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
+    cx.fillText(text, 32, 34);
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false })
+    );
+    sprite.scale.set(0.7, 0.7, 1);
+    sprite.position.set(...pos);
+    axesHelper.add(sprite);
+  });
+})();
+
 // ─── Compass (bottom-left) ────────────────────────────────────────────────────
 const CS  = 72;
 const compassCanvas = document.createElement('canvas');
@@ -316,7 +342,8 @@ let playerJumpY  = 0;
 
 const coordsEl   = document.getElementById('coords');
 const tileInfoEl = document.getElementById('tile-info');
-const fpsEl      = document.getElementById('fps');
+const fpsEl         = document.getElementById('fps');
+const orientationEl = document.getElementById('orientation');
 let fpsAccum  = 0;
 let fpsFrames = 0;
 
@@ -464,6 +491,17 @@ function animate() {
   camera.position.y  = CAM_HEIGHT;
   camera.position.z += (tgtCamZ - camera.position.z) * camK;
   camera.lookAt(playerMesh.position.x, 0, playerMesh.position.z);
+
+  // ── Orientation readout (only when axes helper is visible) ───────────────
+  if (axesHelper.visible) {
+    const yawDeg   = (((currentCamAngle * 180 / Math.PI) % 360) + 360) % 360;
+    const pitchDeg = Math.atan2(CAM_HEIGHT, CAM_RADIUS) * 180 / Math.PI;
+    orientationEl.textContent =
+      `yaw   ${yawDeg.toFixed(1)}°\npitch ${pitchDeg.toFixed(1)}°\nroll  0.0°`;
+    orientationEl.style.display = '';
+  } else {
+    orientationEl.style.display = 'none';
+  }
 
   drawCompass();
   renderer.render(scene, camera);

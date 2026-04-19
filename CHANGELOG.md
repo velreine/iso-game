@@ -6,6 +6,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.3] - 2026-04-19
+
+### Added
+- **Axis labels on axes helper** — canvas-texture sprites show `X` (red),
+  `Y` (green), `Z` (blue) at the tip of each arm; always face the camera;
+  hide/show with the axes helper toggle
+- **Pitch / Yaw / Roll HUD** — small readout in the bottom-right that appears
+  only when the axes helper is visible; yaw updates live as the camera orbits,
+  pitch shows the fixed isometric elevation (~35.3°), roll is always 0°
+
+---
+
 ## [0.7.2] - 2026-04-19
 
 ### Added
