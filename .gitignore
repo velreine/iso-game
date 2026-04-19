@@ -1,0 +1,8 @@
+# IDE
+.idea/
+
+# Docker build artefacts
+.dockerignore
+
+# Screenshots (binary, generated)
+docs/screenshots/
