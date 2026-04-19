@@ -279,6 +279,13 @@ const fpsEl      = document.getElementById('fps');
 let fpsAccum  = 0;
 let fpsFrames = 0;
 
+// ─── Version Overlay ──────────────────────────────────────────────────────────
+const versionEl = document.getElementById('version');
+fetch('/version.txt')
+  .then(r => r.text())
+  .then(v => { versionEl.textContent = `v${v.trim()}`; })
+  .catch(() => {});
+
 // Returns true if the tile at (x, z) exists and is walkable
 function isWalkable(x, z) {
   if (Math.abs(x) > GRID_HALF || Math.abs(z) > GRID_HALF) return false;

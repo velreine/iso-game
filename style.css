@@ -60,6 +60,17 @@ canvas {
   min-width: 58px;
 }
 
+#version {
+  position: absolute;
+  bottom: 20px;
+  right: 18px;
+  color: rgba(255, 255, 255, 0.28);
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  pointer-events: none;
+  user-select: none;
+}
+
 #tile-info {
   position: absolute;
   top: 44px;

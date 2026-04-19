@@ -5,9 +5,10 @@ FROM nginx:1.25-alpine
 RUN rm -rf /usr/share/nginx/html/*
 
 # Copy game files
-COPY index.html  /usr/share/nginx/html/
-COPY game.js     /usr/share/nginx/html/
-COPY style.css   /usr/share/nginx/html/
+COPY index.html   /usr/share/nginx/html/
+COPY game.js      /usr/share/nginx/html/
+COPY style.css    /usr/share/nginx/html/
+COPY version.txt  /usr/share/nginx/html/
 
 # Use custom nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf

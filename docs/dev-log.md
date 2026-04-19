@@ -10,6 +10,8 @@ A step-by-step record of every feature added to the game, with the most importan
 2. [Stage 2 — Player Cube, Arrow Key Movement & Docker](#stage-2)
 3. [Stage 3 — WASD, Camera Rotation, Compass & Eye Ray](#stage-3)
 4. [Stage 4 — Camera-Relative 8-Dir Movement, Jump & Lava Tiles](#stage-4)
+5. [Stage 5 — FPS Counter & Player Facing Fix](#stage-5)
+6. [Stage 6 — Corner Sliding & Version Overlay](#stage-6)
 
 ---
 
@@ -461,6 +463,118 @@ lavaLight.intensity = 1.8 + Math.sin(t * 2.8) * 0.6;
 
 ---
 
+<a name="stage-5"></a>
+## Stage 5 — FPS Counter & Player Facing Fix
+
+### Goal
+Display a live frame-rate counter and fix the player's eye/ray so it points in the direction of travel instead of roughly opposite to it.
+
+---
+
+### FPS Counter
+
+A pair of accumulators (`fpsAccum`, `fpsFrames`) are incremented each frame inside `animate()`. Every 0.5 s the display is flushed and the counters reset, giving a stable reading that doesn't jitter every frame.
+
+```js
+let fpsAccum  = 0;
+let fpsFrames = 0;
+const fpsEl = document.getElementById('fps');
+
+// Inside animate():
+fpsAccum  += dt;
+fpsFrames += 1;
+if (fpsAccum >= 0.5) {
+  fpsEl.textContent = `${Math.round(fpsFrames / fpsAccum)} fps`;
+  fpsAccum  = 0;
+  fpsFrames = 0;
+}
+```
+
+A `#fps` div is positioned absolute in the top-left corner to mirror the coordinates display on the right.
+
+---
+
+### Player Facing Direction Fix
+
+The player's eye and `ArrowHelper` ray live in local space along the `−Z` axis. To make local `−Z` point toward world direction `(dx, dz)` after a Y-axis rotation `θ`, the correct identity is:
+
+```
+local −Z rotated by θ = (−sin θ,  0,  −cos θ)  in world XZ
+```
+
+Setting this equal to `(dx, dz)` gives `sin θ = −dx`, `cos θ = −dz`, so:
+
+```js
+// Correct ✓
+playerMesh.rotation.y = Math.atan2(-dx, -dz);
+
+// Was wrong — produces the opposite facing direction ✗
+// playerMesh.rotation.y = Math.atan2(dx, -dz);
+```
+
+The one-character sign change on `dx` ensures that pressing Up faces north-west, Right faces north-east, Down faces south-east, and Left faces south-west — all matching the direction the cube actually moves.
+
+---
+
+<a name="stage-6"></a>
+## Stage 6 — Corner Sliding & Version Overlay
+
+### Goal
+Make movement feel fluid near obstacles by automatically sliding along accessible edges, and display the current game version in the HUD.
+
+---
+
+### Corner Sliding
+
+When a diagonal world move `(dx, dz)` is blocked, the game tries each axis component individually before giving up. This lets the player glide around corners without having to manually steer around them.
+
+The logic lives inside a `tryMove` helper that both performs the move and updates all related state (rotation, HUD, coords) atomically:
+
+```js
+function tryMove(tx, tz, faceDx, faceDz) {
+  if (!isWalkable(tx, tz)) return false;
+  grid.x = tx;
+  grid.z = tz;
+  playerMesh.rotation.y = Math.atan2(-faceDx, -faceDz);
+  coordsEl.textContent  = `${grid.x}, ${grid.z}`;
+  const tile = tileMap[tx]?.[tz];
+  tileInfoEl.textContent = tile
+    ? `tile: ${tile.type}  walkable: ${tile.walkable}` : '';
+  return true;
+}
+
+const moved = tryMove(nx, nz, dx, dz);
+
+if (!moved && dx !== 0 && dz !== 0) {
+  // Try keeping dx only (slide along X), then dz only (slide along Z)
+  const slid = tryMove(grid.x + dx, grid.z,    dx,  0)
+            || tryMove(grid.x,    grid.z + dz,   0, dz);
+  if (!slid) { /* show blocked message */ }
+}
+```
+
+The `||` short-circuits — if the first slide succeeds the second is never attempted. The player faces the actual slide direction, so the eye and ray remain meaningful even during a corrected move.
+
+---
+
+### Version Overlay
+
+`version.txt` is a plain-text file containing just the version string (e.g. `0.6.0`). It is served by nginx alongside the other static assets and fetched once at startup:
+
+```js
+const versionEl = document.getElementById('version');
+fetch('/version.txt')
+  .then(r => r.text())
+  .then(v => { versionEl.textContent = `v${v.trim()}`; })
+  .catch(() => {});
+```
+
+The element is positioned bottom-right at low opacity so it is visible without being distracting. The `.catch` is a no-op — the label stays at `v?.?.?` if the fetch fails (e.g. during local dev without Docker).
+
+Bumping the version is now a one-line edit to `version.txt`; Docker's volume mount means the change is live on the next browser refresh.
+
+---
+
 ## Controls Reference
 
 | Key | Action |
@@ -482,10 +596,13 @@ lavaLight.intensity = 1.8 + Math.sin(t * 2.8) * 0.6;
 ```
 iso-game/
 ├── index.html          # HTML shell — loads Three.js CDN + game.js
-├── game.js             # All game logic (~410 lines)
+├── game.js             # All game logic
 ├── style.css           # Fullscreen canvas + HUD styling
+├── version.txt         # Current version string (e.g. 0.6.0)
+├── CHANGELOG.md        # Per-version change history
+├── CLAUDE.md           # Project rules for Claude (docs + versioning)
 ├── Dockerfile          # nginx:alpine static file server
-├── docker-compose.yml  # Maps container port 80 → host 8081
+├── docker-compose.yml  # Maps container port 80 → host 8081; host volume mounts
 ├── nginx.conf          # Gzip + 1-day cache headers
 ├── .dockerignore
 └── docs/
