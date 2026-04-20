@@ -85,10 +85,10 @@ const sun = new THREE.DirectionalLight(0xffe8c0, 1.4);
 sun.position.set(12, 20, 8);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left   = -25;
-sun.shadow.camera.right  =  25;
-sun.shadow.camera.top    =  25;
-sun.shadow.camera.bottom = -25;
+sun.shadow.camera.left   = -35;
+sun.shadow.camera.right  =  35;
+sun.shadow.camera.top    =  35;
+sun.shadow.camera.bottom = -35;
 sun.shadow.camera.near   =  0.5;
 sun.shadow.camera.far    =  100;
 scene.add(sun);
@@ -133,6 +133,30 @@ const LAVA_COORDS = new Set([
                   '5,7', '6,7', '7,7',
 ]);
 
+// ─── Multi-room layout ────────────────────────────────────────────────────────
+//   Room 1   — existing 17×17 grid,   x: −8..8,  z: −8..8
+//   Corridor — 3 tiles wide, 5 deep,  x: −1..1,  z:  9..13
+//   Room 2   — 11×11 grid,            x: −5..5,  z: 14..24
+//
+const ROOM2_X_MIN = -5, ROOM2_X_MAX = 5;
+const ROOM2_Z_MIN = 14, ROOM2_Z_MAX = 24;
+const CORR_X_MIN  = -1, CORR_X_MAX  = 1;
+const CORR_Z_MIN  =  9, CORR_Z_MAX  = 13;
+
+const ROOM2_COLORS = [
+  0x374258, 0x2e3a55, 0x3a4260, 0x2c3850,
+  0x404560, 0x363e58, 0x344060, 0x3c4055,
+];
+const DOOR_COLOR = 0x6a6040;   // warm threshold tiles at corridor ends
+
+// Wall config — walls are generated on every walkable-tile edge bordering empty space
+const WALL_HEIGHT    = 0.9;
+const WALL_FADE_NEAR = 2.5;   // distance (world units) where walls begin fading
+const WALL_FADE_FAR  = 4.5;   // distance where walls are fully opaque
+const WALL_MIN_OPC   = 0.12;  // minimum opacity when player is right at a wall
+
+const wallData = [];           // { mesh, x, z } — filled at build time, read each frame
+
 const tileGeom  = new THREE.BoxGeometry(1 - TILE_GAP, TILE_THICKNESS, 1 - TILE_GAP);
 const tileMeshes = [];  // flat list used by the hover raycaster
 
@@ -165,6 +189,90 @@ for (let x = -GRID_HALF; x <= GRID_HALF; x++) {
     };
   }
 }
+
+// ─── Corridor tiles ──────────────────────────────────────────────────────────
+for (let x = CORR_X_MIN; x <= CORR_X_MAX; x++) {
+  if (!tileMap[x]) tileMap[x] = {};
+  for (let z = CORR_Z_MIN; z <= CORR_Z_MAX; z++) {
+    const isDoor = (z === CORR_Z_MIN || z === CORR_Z_MAX);
+    const color  = isDoor
+      ? DOOR_COLOR
+      : STONE_COLORS[Math.floor(Math.random() * STONE_COLORS.length)];
+    const mat = new THREE.MeshLambertMaterial({ color });
+    if (isDoor) { mat.emissive.setHex(0x151005); mat.emissiveIntensity = 0.5; }
+    const tile = new THREE.Mesh(tileGeom, mat);
+    tile.position.set(x, -TILE_THICKNESS / 2, z);
+    tile.receiveShadow = true;
+    scene.add(tile);
+    tileMeshes.push(tile);
+    tileMap[x][z] = { walkable: true, type: isDoor ? 'door' : 'stone', mesh: tile };
+  }
+}
+
+// ─── Room 2 tiles ─────────────────────────────────────────────────────────────
+for (let x = ROOM2_X_MIN; x <= ROOM2_X_MAX; x++) {
+  if (!tileMap[x]) tileMap[x] = {};
+  for (let z = ROOM2_Z_MIN; z <= ROOM2_Z_MAX; z++) {
+    const color = ROOM2_COLORS[Math.floor(Math.random() * ROOM2_COLORS.length)];
+    const mat   = new THREE.MeshLambertMaterial({ color });
+    const tile  = new THREE.Mesh(tileGeom, mat);
+    tile.position.set(x, -TILE_THICKNESS / 2, z);
+    tile.receiveShadow = true;
+    scene.add(tile);
+    tileMeshes.push(tile);
+    tileMap[x][z] = { walkable: true, type: 'stone2', mesh: tile };
+  }
+}
+
+// ─── Walls ────────────────────────────────────────────────────────────────────
+// For every walkable tile, check each of the 4 cardinal neighbours. If there is
+// no tile there at all (undefined in tileMap) place a wall segment on that edge.
+// Tiles adjacent to lava (which has its own visible floor mesh) are skipped
+// naturally because lava cells ARE defined in tileMap.
+//
+const wallGeomNS = new THREE.BoxGeometry(1 - TILE_GAP, WALL_HEIGHT, 0.1);
+const wallGeomEW = new THREE.BoxGeometry(0.1, WALL_HEIGHT, 1 - TILE_GAP);
+const _WALL_DIRS = [
+  { dx:  0, dz: -1, geom: wallGeomNS, ox:  0,    oz: -0.5 },  // North
+  { dx:  0, dz:  1, geom: wallGeomNS, ox:  0,    oz:  0.5 },  // South
+  { dx: -1, dz:  0, geom: wallGeomEW, ox: -0.5,  oz:  0   },  // West
+  { dx:  1, dz:  0, geom: wallGeomEW, ox:  0.5,  oz:  0   },  // East
+];
+
+for (const xStr of Object.keys(tileMap)) {
+  const x = Number(xStr);
+  for (const zStr of Object.keys(tileMap[x])) {
+    const z = Number(zStr);
+    if (!tileMap[x][z].walkable) continue;
+    for (const dir of _WALL_DIRS) {
+      const nx = x + dir.dx, nz = z + dir.dz;
+      if (tileMap[nx]?.[nz] !== undefined) continue;   // neighbour tile exists — no wall
+      const wallMat = new THREE.MeshLambertMaterial({
+        color: 0x58606e, transparent: true, opacity: 1.0,
+      });
+      const wall = new THREE.Mesh(dir.geom, wallMat);
+      wall.position.set(x + dir.ox, WALL_HEIGHT / 2, z + dir.oz);
+      wall.castShadow = true;
+      scene.add(wall);
+      wallData.push({ mesh: wall, x: x + dir.ox, z: z + dir.oz });
+    }
+  }
+}
+
+// ─── Door pillars ─────────────────────────────────────────────────────────────
+// Decorative stone columns flank each end of the corridor, marking the
+// transitions between rooms. Two pillars per opening = four total.
+const pillarGeom = new THREE.BoxGeometry(0.28, 1.8, 0.28);
+const pillarMat  = new THREE.MeshLambertMaterial({ color: 0x706858 });
+[
+  [-1.5,  8.5], [1.5,  8.5],   // Room 1 → Corridor
+  [-1.5, 13.5], [1.5, 13.5],   // Corridor → Room 2
+].forEach(([px, pz]) => {
+  const pillar = new THREE.Mesh(pillarGeom, pillarMat);
+  pillar.position.set(px, 0.9, pz);
+  pillar.castShadow = true;
+  scene.add(pillar);
+});
 
 // ─── Player ───────────────────────────────────────────────────────────────────
 const playerMesh = new THREE.Mesh(
@@ -268,7 +376,7 @@ function _setTileInstance(mesh, idx, x, z) {
   mesh.setMatrixAt(idx, _pfDummy.matrix);
 }
 
-const MAX_TILES = (GRID_HALF * 2 + 1) ** 2;   // 289 tiles on the grid
+const MAX_TILES = 500;   // covers Room 1 (289) + corridor (15) + Room 2 (121)
 
 function _makeLayer(color, maxN, order) {
   const m = new THREE.InstancedMesh(
@@ -494,10 +602,10 @@ fetch('./version.txt')
   .then(v => { versionEl.textContent = `v${v.trim()}`; })
   .catch(() => {});
 
-// Returns true if the tile at (x, z) exists and is walkable
+// Returns true if the tile at (x, z) exists and is walkable.
+// No bounds check — multi-room map uses tileMap presence as the authority.
 function isWalkable(x, z) {
-  if (Math.abs(x) > GRID_HALF || Math.abs(z) > GRID_HALF) return false;
-  return tileMap[x]?.[z]?.walkable !== false;
+  return tileMap[x]?.[z]?.walkable === true;
 }
 
 // ── tryMove (hoisted so pathfinding can call it) ──────────────────────────────
@@ -838,6 +946,17 @@ function animate() {
 
   // ── Lava glow pulse ───────────────────────────────────────────────────────
   lavaLight.intensity = 1.8 + Math.sin(t * 2.8) * 0.6;
+
+  // ── Wall transparency — fade walls near the player so they never occlude ──
+  {
+    const px = playerMesh.position.x, pz = playerMesh.position.z;
+    for (const wd of wallData) {
+      const dist = Math.sqrt((wd.x - px) ** 2 + (wd.z - pz) ** 2);
+      const t2 = Math.max(0, Math.min(1,
+        (dist - WALL_FADE_NEAR) / (WALL_FADE_FAR - WALL_FADE_NEAR)));
+      wd.mesh.material.opacity = WALL_MIN_OPC + t2 * (1 - WALL_MIN_OPC);
+    }
+  }
 
   // ── Camera smooth orbit ───────────────────────────────────────────────────
   let diff = targetCamAngle - currentCamAngle;

@@ -17,6 +17,7 @@ A step-by-step record of every feature added to the game, with the most importan
 9. [Stage 9 — Mouse Hover Raycast & Tile Highlight](#stage-9)
 10. [Stage 10 — Camera Pan (Right-Click Drag)](#stage-10)
 11. [Stage 11 — Click-to-Move with A\* Pathfinding](#stage-11)
+12. [Stage 12 — Multi-Room Map, Walls & Wall Transparency](#stage-12)
 
 ---
 
@@ -1039,6 +1040,127 @@ if (pfState === 'following') {
 | Esc | Open / close settings panel |
 | Right-click drag | Pan camera (decouples from player) |
 | Left-click tile  | Pathfind and auto-walk to that tile |
+
+---
+
+<a name="stage-12"></a>
+## Stage 12 — Multi-Room Map, Walls & Wall Transparency
+
+### Goal
+Expand the single-room stone floor into a two-room dungeon connected by a narrow corridor, wrap every room boundary in 3-D walls, and fade those walls away when the player is nearby so they never obscure the view.
+
+---
+
+### Room Layout
+
+```
+  Room 1  x: −8..8,  z: −8..8   (17×17 — existing)
+  │
+  └── Corridor  x: −1..1,  z: 9..13   (3 wide × 5 deep)
+        │
+        └── Room 2  x: −5..5,  z: 14..24   (11×11 — new, blue-grey palette)
+```
+
+Room 2 uses a distinct cool-toned colour set so the player immediately knows they've crossed into a different space:
+
+```js
+const ROOM2_COLORS = [
+  0x374258, 0x2e3a55, 0x3a4260, 0x2c3850,
+  0x404560, 0x363e58, 0x344060, 0x3c4055,
+];
+```
+
+Corridor entry and exit tiles are painted with `DOOR_COLOR = 0x6a6040` (warm amber stone) to signal the transition.
+
+---
+
+### isWalkable Refactor
+
+The old implementation hardcoded the Room 1 grid extents:
+
+```js
+// Before — only Room 1 worked
+function isWalkable(x, z) {
+  if (Math.abs(x) > GRID_HALF || Math.abs(z) > GRID_HALF) return false;
+  return tileMap[x]?.[z]?.walkable !== false;
+}
+```
+
+After expanding the map the check was replaced by a simple presence test:
+
+```js
+// After — any tile that exists and is walkable is reachable
+function isWalkable(x, z) {
+  return tileMap[x]?.[z]?.walkable === true;
+}
+```
+
+A\* pathfinding now routes seamlessly across all rooms because the only authority is `tileMap`.
+
+---
+
+### Algorithmic Wall Generation
+
+Rather than hand-placing walls, a single pass over `tileMap` checks each walkable tile's four cardinal neighbours. If a neighbour position has **no entry in `tileMap` at all**, a wall segment is placed on that edge. This means:
+
+- Room boundaries get walls automatically.
+- The corridor opening appears because Room 1 tiles at z = 8 have walkable corridor tiles at z = 9 — those edges are skipped.
+- Lava tiles are defined in `tileMap` (just non-walkable), so their adjacent stone tiles don't get walls — the lava reads as an open-floor hazard, not a walled chamber.
+
+```js
+const _WALL_DIRS = [
+  { dx:  0, dz: -1, geom: wallGeomNS, ox:  0,    oz: -0.5 },  // North
+  { dx:  0, dz:  1, geom: wallGeomNS, ox:  0,    oz:  0.5 },  // South
+  { dx: -1, dz:  0, geom: wallGeomEW, ox: -0.5,  oz:  0   },  // West
+  { dx:  1, dz:  0, geom: wallGeomEW, ox:  0.5,  oz:  0   },  // East
+];
+
+for (const xStr of Object.keys(tileMap)) {
+  const x = Number(xStr);
+  for (const zStr of Object.keys(tileMap[x])) {
+    const z = Number(zStr);
+    if (!tileMap[x][z].walkable) continue;
+    for (const dir of _WALL_DIRS) {
+      const nx = x + dir.dx, nz = z + dir.dz;
+      if (tileMap[nx]?.[nz] !== undefined) continue;  // neighbour exists — no wall
+      // ... create wall mesh and push to wallData
+    }
+  }
+}
+```
+
+Two shared geometries cover both orientations (`wallGeomNS` for north/south faces, `wallGeomEW` for east/west), keeping geometry allocation low.
+
+---
+
+### Door Pillars
+
+Four `0.28 × 1.8 × 0.28` stone columns are placed at the corridor mouth corners (±1.5 on X, at z = 8.5 and z = 13.5) to frame the openings visually:
+
+```js
+[
+  [-1.5,  8.5], [1.5,  8.5],   // Room 1 → Corridor
+  [-1.5, 13.5], [1.5, 13.5],   // Corridor → Room 2
+].forEach(([px, pz]) => { /* Mesh at (px, 0.9, pz) */ });
+```
+
+---
+
+### Per-Frame Wall Transparency
+
+Every wall mesh gets its own `MeshLambertMaterial` with `transparent: true`. In `animate()` a tight loop checks each wall's world distance to the player and writes a new `opacity`:
+
+```js
+const px = playerMesh.position.x, pz = playerMesh.position.z;
+for (const wd of wallData) {
+  const dist = Math.sqrt((wd.x - px) ** 2 + (wd.z - pz) ** 2);
+  const t = Math.max(0, Math.min(1,
+    (dist - WALL_FADE_NEAR) / (WALL_FADE_FAR - WALL_FADE_NEAR)));
+  wd.mesh.material.opacity = WALL_MIN_OPC + t * (1 - WALL_MIN_OPC);
+}
+```
+
+`WALL_FADE_NEAR = 2.5` / `WALL_FADE_FAR = 4.5` means walls start fading at 4.5 units and reach minimum opacity (`0.12`) at 2.5 units — enough to always show the player cube even when pressed against a corner.
 
 ---
 

@@ -6,6 +6,32 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.0] - 2026-04-20
+
+### Added
+- **Second room** — a cooler-toned 11×11 stone room (Room 2, x: −5..5, z: 14..24)
+  using a distinct blue-grey palette to visually contrast with Room 1
+- **Connecting corridor** — 3 tiles wide, 5 tiles deep (x: −1..1, z: 9..13)
+  with warm-tinted **door tiles** at each end (z = 9 and z = 13) signalling the transitions
+- **Algorithmic wall generation** — for every walkable tile, a wall segment is placed
+  on any edge that borders empty space; walls are only generated at world boundaries
+  (not between adjacent rooms), so the corridor openings appear naturally with no
+  special-case code
+- **Door pillars** — four decorative stone columns (0.28 × 1.8 × 0.28) flank the
+  corridor openings, one at each side of both the Room 1 and Room 2 entrances
+- **Wall transparency** — each frame every wall's opacity is computed from its
+  distance to the player (`WALL_FADE_NEAR = 2.5`, `WALL_FADE_FAR = 4.5`,
+  `WALL_MIN_OPC = 0.12`) so nearby walls fade out, keeping the player always visible
+
+### Changed
+- `isWalkable` — removed the old `GRID_HALF` bounds check; multi-room reachability
+  is now determined purely by `tileMap[x]?.[z]?.walkable === true`
+- `MAX_TILES` — raised from 289 to 500 to cover all pathfinding visualisation
+  instances across both rooms and corridor
+- Sun shadow camera frustum expanded to ±35 to cover the full two-room map
+
+---
+
 ## [1.0.0] - 2026-04-21
 
 ### Added
