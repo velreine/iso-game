@@ -22,6 +22,11 @@ let gravity             = 22;     // downward acceleration
 let camFollowSpeed      = 8;      // camera position lerp rate
 let cornerSlidingEnabled  = true;  // auto-slide along obstacles
 let hoverRaycastEnabled   = true;  // mouse hover raycast + tile highlight
+let clickToMoveEnabled    = true;  // left-click to pathfind to a tile
+let showPathViz           = true;  // show planned path in red
+let showDestViz           = true;  // show target tile in green
+let showExploreViz        = true;  // show A* explored tiles in blue
+let pathfindDelay         = 30;    // ms pause between each A* step (0 = instant)
 
 // Default values — used by the settings menu reset buttons
 const DEFAULTS = {
@@ -37,6 +42,11 @@ const DEFAULTS = {
   showRay:         true,
   showAxes:        false,
   hoverRaycast:    true,
+  clickToMove:     true,
+  showPathViz:     true,
+  showDestViz:     true,
+  showExploreViz:  true,
+  pathDelay:       30,
 };
 
 // ─── Camera ───────────────────────────────────────────────────────────────────
@@ -239,9 +249,46 @@ const hoverHighlight = new THREE.Mesh(
   })
 );
 hoverHighlight.rotation.x = -Math.PI / 2;
-hoverHighlight.position.y = 0.005;   // just above tile top surface (y=0)
+hoverHighlight.position.y = 0.005;
 hoverHighlight.visible = false;
+hoverHighlight.material.depthTest = false;
+hoverHighlight.renderOrder = 5;      // always on top of pathfinding layers
 scene.add(hoverHighlight);
+
+// ─── Pathfinding visualisation layers ────────────────────────────────────────
+// Three InstancedMesh objects share the same flat plane geometry; each instance
+// is positioned at a tile. depthTest:false + renderOrder keeps them stacked
+// cleanly above the tile geometry regardless of small Y differences.
+const _pfDummy = new THREE.Object3D();
+_pfDummy.rotation.x = -Math.PI / 2;   // lay plane flat on the ground
+
+function _setTileInstance(mesh, idx, x, z) {
+  _pfDummy.position.set(x, 0.005, z);
+  _pfDummy.updateMatrix();
+  mesh.setMatrixAt(idx, _pfDummy.matrix);
+}
+
+const MAX_TILES = (GRID_HALF * 2 + 1) ** 2;   // 289 tiles on the grid
+
+function _makeLayer(color, maxN, order) {
+  const m = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(0.88, 0.88),
+    new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.5,
+      depthWrite: false, depthTest: false,
+    }),
+    maxN
+  );
+  m.count = 0;
+  m.visible = false;
+  m.renderOrder = order;
+  scene.add(m);
+  return m;
+}
+
+const exploredLayer = _makeLayer(0x2255ff, MAX_TILES, 1);   // blue — A* explored
+const pathLayer     = _makeLayer(0xff2222, MAX_TILES, 2);   // red  — planned path
+const destLayer     = _makeLayer(0x22ff55, 1,         4);   // green — destination
 
 const raycaster   = new THREE.Raycaster();
 const mouse       = new THREE.Vector2(Infinity, Infinity);
@@ -297,6 +344,15 @@ window.addEventListener('mousemove', e => {
 window.addEventListener('mouseleave', () => {
   mouse.set(Infinity, Infinity);
   isRightDragging = false;
+});
+
+// Left-click → click-to-move (uses the already-computed hoveredTile)
+renderer.domElement.addEventListener('click', e => {
+  if (!clickToMoveEnabled || isPaused || !hoveredTile || !hoveredTile.walkable) return;
+  if (e.button !== 0) return;
+  // Don't trigger if this click was the end of a right-drag
+  if (isRightDragging) return;
+  startPathfind(hoveredTile.x, hoveredTile.z);
 });
 
 // ─── Compass (bottom-left) ────────────────────────────────────────────────────
@@ -444,12 +500,246 @@ function isWalkable(x, z) {
   return tileMap[x]?.[z]?.walkable !== false;
 }
 
+// ── tryMove (hoisted so pathfinding can call it) ──────────────────────────────
+function tryMove(tx, tz, faceDx, faceDz) {
+  if (!isWalkable(tx, tz)) return false;
+  grid.x = tx;
+  grid.z = tz;
+  playerMesh.rotation.y = Math.atan2(-faceDx, -faceDz);
+  coordsEl.textContent  = `${grid.x}, ${grid.z}`;
+  const tile = tileMap[tx]?.[tz];
+  tileInfoEl.textContent = tile ? `tile: ${tile.type}  walkable: ${tile.walkable}` : '';
+  return true;
+}
+
+// ─── Pathfinding ──────────────────────────────────────────────────────────────
+let pfState      = 'idle';   // 'idle' | 'searching' | 'following'
+let pfToken      = 0;        // increment to cancel any in-flight async search
+let pfPath       = [];       // [{x,z}] steps remaining to walk
+let pfStepIdx    = 0;        // index into pfPath of the next step to take
+let pfGoal       = null;     // {x,z} destination tile
+const pfExplored = new Set();// string keys of A*-explored tiles this run
+
+// ── Visualisation helpers ─────────────────────────────────────────────────────
+function _vizExplored() {
+  if (!showExploreViz || pfExplored.size === 0) {
+    exploredLayer.count = 0; exploredLayer.visible = false; return;
+  }
+  let i = 0;
+  for (const k of pfExplored) {
+    const [x, z] = k.split(',').map(Number);
+    _setTileInstance(exploredLayer, i++, x, z);
+  }
+  exploredLayer.count = i;
+  exploredLayer.instanceMatrix.needsUpdate = true;
+  exploredLayer.visible = true;
+}
+
+function _vizPath() {
+  const rem = pfPath.slice(pfStepIdx);
+  if (!showPathViz || rem.length === 0) {
+    pathLayer.count = 0; pathLayer.visible = false; return;
+  }
+  rem.forEach((p, i) => _setTileInstance(pathLayer, i, p.x, p.z));
+  pathLayer.count = rem.length;
+  pathLayer.instanceMatrix.needsUpdate = true;
+  pathLayer.visible = true;
+}
+
+function _vizDest() {
+  if (!showDestViz || !pfGoal) {
+    destLayer.count = 0; destLayer.visible = false; return;
+  }
+  _setTileInstance(destLayer, 0, pfGoal.x, pfGoal.z);
+  destLayer.count = 1;
+  destLayer.instanceMatrix.needsUpdate = true;
+  destLayer.visible = true;
+}
+
+function _clearAllViz() {
+  pfExplored.clear();
+  exploredLayer.count = 0; exploredLayer.visible = false;
+  pathLayer.count     = 0; pathLayer.visible     = false;
+  destLayer.count     = 0; destLayer.visible     = false;
+}
+
+// ── A* min-heap priority queue ────────────────────────────────────────────────
+class MinHeap {
+  constructor() { this._d = []; }
+  get size() { return this._d.length; }
+  push(n) { this._d.push(n); this._up(this._d.length - 1); }
+  pop()  {
+    const top = this._d[0], last = this._d.pop();
+    if (this._d.length) { this._d[0] = last; this._dn(0); }
+    return top;
+  }
+  _up(i) {
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this._d[p].f <= this._d[i].f) break;
+      [this._d[p], this._d[i]] = [this._d[i], this._d[p]]; i = p;
+    }
+  }
+  _dn(i) {
+    const n = this._d.length;
+    for (;;) {
+      let m = i, l = 2*i+1, r = 2*i+2;
+      if (l < n && this._d[l].f < this._d[m].f) m = l;
+      if (r < n && this._d[r].f < this._d[m].f) m = r;
+      if (m === i) break;
+      [this._d[m], this._d[i]] = [this._d[i], this._d[m]]; i = m;
+    }
+  }
+}
+
+// Chebyshev heuristic (admissible for 8-direction grid movement)
+function _h(ax, az, bx, bz) {
+  return Math.max(Math.abs(ax - bx), Math.abs(az - bz));
+}
+
+const _DIRS8 = [
+  [-1,-1],[0,-1],[1,-1],
+  [-1, 0],       [1, 0],
+  [-1, 1],[0, 1],[1, 1],
+];
+
+async function _aStar(sx, sz, gx, gz, token) {
+  const heap     = new MinHeap();
+  const cameFrom = new Map();
+  const gScore   = new Map();
+  const closed   = new Set();
+  const startKey = `${sx},${sz}`;
+  const goalKey  = `${gx},${gz}`;
+
+  gScore.set(startKey, 0);
+  heap.push({ x: sx, z: sz, f: _h(sx, sz, gx, gz) });
+  pfExplored.clear();
+
+  while (heap.size > 0) {
+    if (pfToken !== token) return null;   // cancelled
+
+    const cur = heap.pop();
+    const key = `${cur.x},${cur.z}`;
+    if (closed.has(key)) continue;
+    closed.add(key);
+
+    // Visualise explored set (skip render update when delay is 0 for speed)
+    pfExplored.add(key);
+    if (pathfindDelay > 0) {
+      _vizExplored();
+      await new Promise(r => setTimeout(r, pathfindDelay));
+      if (pfToken !== token) return null;
+    }
+
+    if (key === goalKey) {
+      // Reconstruct path (excludes start tile)
+      const path = [];
+      let k = key;
+      while (k !== startKey) {
+        const [px, pz] = k.split(',').map(Number);
+        path.unshift({ x: px, z: pz });
+        k = cameFrom.get(k);
+      }
+      return path;
+    }
+
+    for (const [dx, dz] of _DIRS8) {
+      const nx = cur.x + dx, nz = cur.z + dz;
+      if (!isWalkable(nx, nz)) continue;
+      const nk = `${nx},${nz}`;
+      if (closed.has(nk)) continue;
+      const cost = (dx !== 0 && dz !== 0) ? Math.SQRT2 : 1;
+      const ng   = (gScore.get(key) ?? 0) + cost;
+      if (ng < (gScore.get(nk) ?? Infinity)) {
+        cameFrom.set(nk, key);
+        gScore.set(nk, ng);
+        heap.push({ x: nx, z: nz, f: ng + _h(nx, nz, gx, gz) });
+      }
+    }
+  }
+  return null;  // no path exists
+}
+
+// ── Public entry point ────────────────────────────────────────────────────────
+async function startPathfind(gx, gz) {
+  pfToken++;
+  const myToken = pfToken;
+  pfGoal    = { x: gx, z: gz };
+  pfPath    = [];
+  pfStepIdx = 0;
+  pfState   = 'searching';
+
+  _vizDest();
+  _vizPath();
+  pfExplored.clear();
+  exploredLayer.count = 0; exploredLayer.visible = false;
+
+  const path = await _aStar(grid.x, grid.z, gx, gz, myToken);
+  if (pfToken !== myToken) return;   // another search started
+
+  if (path && path.length > 0) {
+    pfPath    = path;
+    pfStepIdx = 0;
+    pfState   = 'following';
+    _vizExplored();   // show final explored set
+    _vizPath();
+  } else {
+    pfState = 'idle';
+    pfGoal  = null;
+    _vizExplored();   // keep explored for debugging
+    _vizPath();
+    _vizDest();
+  }
+}
+
+function cancelPathfind() {
+  pfToken++;
+  pfState = 'idle';
+  pfGoal  = null;
+  pfPath  = [];
+  pfStepIdx = 0;
+  _clearAllViz();
+}
+
 function processInput(dt) {
   if (isPaused) return;
   moveCooldown -= dt;
   if (moveCooldown > 0) return;
 
-  // Read all four directions simultaneously — allows diagonals
+  // ── Auto-follow path ──────────────────────────────────────────────────────
+  if (pfState === 'following') {
+    // Any manual key press cancels the path
+    const anyMove = held.has('ArrowUp')   || held.has('ArrowDown')  ||
+                    held.has('ArrowLeft') || held.has('ArrowRight') ||
+                    held.has('KeyW')      || held.has('KeyA')       ||
+                    held.has('KeyS')      || held.has('KeyD');
+    if (anyMove) {
+      cancelPathfind();
+      // fall through to keyboard input below
+    } else {
+      if (pfStepIdx < pfPath.length) {
+        const next = pfPath[pfStepIdx];
+        const dx = next.x - grid.x;
+        const dz = next.z - grid.z;
+        if (tryMove(next.x, next.z, dx, dz)) {
+          pfStepIdx++;
+          _vizPath();
+        } else {
+          cancelPathfind();   // path blocked mid-follow
+        }
+        if (pfStepIdx >= pfPath.length) {
+          // Reached goal
+          pfState = 'idle';
+          pfGoal  = null;
+          _clearAllViz();
+        }
+      }
+      moveCooldown = moveDelay;
+      return;
+    }
+  }
+
+  // ── Keyboard movement ─────────────────────────────────────────────────────
   const ix = (held.has('ArrowRight') || held.has('KeyD') ? 1 : 0)
            - (held.has('ArrowLeft')  || held.has('KeyA') ? 1 : 0);
   const iz = (held.has('ArrowDown')  || held.has('KeyS') ? 1 : 0)
@@ -478,18 +768,6 @@ function processInput(dt) {
 
   if (dx === 0 && dz === 0) return;
 
-  // ── Attempt a single step and update all state if successful ─────────────
-  function tryMove(tx, tz, faceDx, faceDz) {
-    if (!isWalkable(tx, tz)) return false;
-    grid.x = tx;
-    grid.z = tz;
-    playerMesh.rotation.y = Math.atan2(-faceDx, -faceDz);  // face movement direction
-    coordsEl.textContent  = `${grid.x}, ${grid.z}`;
-    const tile = tileMap[tx]?.[tz];
-    tileInfoEl.textContent = tile ? `tile: ${tile.type}  walkable: ${tile.walkable}` : '';
-    return true;
-  }
-
   const nx = grid.x + dx;
   const nz = grid.z + dz;
 
@@ -498,9 +776,8 @@ function processInput(dt) {
   if (!moved) {
     let slid = false;
     if (dx !== 0 && dz !== 0 && cornerSlidingEnabled) {
-      // ── Corner slide ───────────────────────────────────────────────────
-      slid = tryMove(grid.x + dx, grid.z,    dx,  0)
-          || tryMove(grid.x,    grid.z + dz,   0, dz);
+      slid = tryMove(grid.x + dx, grid.z, dx,  0)
+          || tryMove(grid.x,    grid.z + dz,  0, dz);
     }
     if (!slid) {
       const tile = tileMap[nx]?.[nz];
@@ -706,6 +983,11 @@ function syncMenuToState() {
   document.getElementById('s-show-ray').checked     = rayArrow.visible;
   document.getElementById('s-show-axes').checked        = axesHelper.visible;
   document.getElementById('s-hover-raycast').checked    = hoverRaycastEnabled;
+  document.getElementById('s-click-to-move').checked    = clickToMoveEnabled;
+  document.getElementById('s-show-path').checked        = showPathViz;
+  document.getElementById('s-show-dest').checked        = showDestViz;
+  document.getElementById('s-show-explore').checked     = showExploreViz;
+  setControls('s-path-delay', 'n-path-delay', pathfindDelay);
 }
 
 // Wire slider ↔ input pairs
@@ -715,6 +997,7 @@ linkControls('s-gravity',    'n-gravity',    10,   40);
 linkControls('s-cam-speed',  'n-cam-speed',  2,    20);
 linkControls('s-zoom',       'n-zoom',       6,    18);
 linkControls('s-fog',        'n-fog',        0,    0.08);
+linkControls('s-path-delay', 'n-path-delay', 0,    500);
 
 // Apply a single default value to its control(s)
 function applyDefault(key) {
@@ -731,6 +1014,11 @@ function applyDefault(key) {
     case 'showRay':        document.getElementById('s-show-ray').checked       = DEFAULTS.showRay; break;
     case 'showAxes':       document.getElementById('s-show-axes').checked      = DEFAULTS.showAxes; break;
     case 'hoverRaycast':   document.getElementById('s-hover-raycast').checked  = DEFAULTS.hoverRaycast; break;
+    case 'clickToMove':    document.getElementById('s-click-to-move').checked  = DEFAULTS.clickToMove; break;
+    case 'showPathViz':    document.getElementById('s-show-path').checked      = DEFAULTS.showPathViz; break;
+    case 'showDestViz':    document.getElementById('s-show-dest').checked      = DEFAULTS.showDestViz; break;
+    case 'showExploreViz': document.getElementById('s-show-explore').checked   = DEFAULTS.showExploreViz; break;
+    case 'pathDelay':      setControls('s-path-delay', 'n-path-delay', DEFAULTS.pathDelay); break;
   }
 }
 
@@ -771,6 +1059,13 @@ document.getElementById('btn-save').addEventListener('click', () => {
   rayArrow.visible            = document.getElementById('s-show-ray').checked;
   axesHelper.visible          = document.getElementById('s-show-axes').checked;
   hoverRaycastEnabled         = document.getElementById('s-hover-raycast').checked;
+  clickToMoveEnabled          = document.getElementById('s-click-to-move').checked;
+  showPathViz                 = document.getElementById('s-show-path').checked;
+  showDestViz                 = document.getElementById('s-show-dest').checked;
+  showExploreViz              = document.getElementById('s-show-explore').checked;
+  pathfindDelay               = parseFloat(document.getElementById('n-path-delay').value);
+  // Immediately refresh any active visualisation to reflect toggle changes
+  _vizPath(); _vizDest(); _vizExplored();
 
   closeSettings();
 });

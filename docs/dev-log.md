@@ -16,6 +16,7 @@ A step-by-step record of every feature added to the game, with the most importan
 8. [Stage 8 — Axes Helper, Labels & Orientation HUD](#stage-8)
 9. [Stage 9 — Mouse Hover Raycast & Tile Highlight](#stage-9)
 10. [Stage 10 — Camera Pan (Right-Click Drag)](#stage-10)
+11. [Stage 11 — Click-to-Move with A\* Pathfinding](#stage-11)
 
 ---
 
@@ -907,6 +908,120 @@ renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 
 ---
 
+<a name="stage-11"></a>
+## Stage 11 — Click-to-Move with A\* Pathfinding
+
+### Goal
+Left-click any walkable tile to automatically walk the player to it using A\*. A configurable step delay lets you watch the algorithm explore tile by tile, with blue for explored tiles, red for the chosen path, and green for the destination.
+
+---
+
+### A\* Implementation
+
+The algorithm uses a **min-heap priority queue** keyed on `f = g + h`, where `g` is the true cost from start and `h` is the Chebyshev heuristic (admissible for 8-direction grids). Diagonal steps cost √2 rather than 1 to produce geometrically natural paths.
+
+```js
+// Chebyshev heuristic — never overestimates on an 8-direction grid
+function _h(ax, az, bx, bz) {
+  return Math.max(Math.abs(ax - bx), Math.abs(az - bz));
+}
+
+const _DIRS8 = [
+  [-1,-1],[0,-1],[1,-1],
+  [-1, 0],       [1, 0],
+  [-1, 1],[0, 1],[1, 1],
+];
+
+// Inside the search loop — diagonal steps cost √2, cardinal cost 1
+const cost = (dx !== 0 && dz !== 0) ? Math.SQRT2 : 1;
+const ng   = gScore.get(key) + cost;
+if (ng < (gScore.get(nk) ?? Infinity)) {
+  cameFrom.set(nk, key);
+  gScore.set(nk, ng);
+  heap.push({ x: nx, z: nz, f: ng + _h(nx, nz, gx, gz) });
+}
+```
+
+The path is reconstructed by following `cameFrom` back from goal to start and reversing the result.
+
+---
+
+### Async Step-by-Step with Token Cancellation
+
+The search function is `async`. It pauses for `pathfindDelay` ms after each node it pops, yielding control back to the render loop so Three.js can repaint the exploration visualisation in real time. A monotonically increasing `pfToken` integer lets any new click immediately invalidate an in-flight search:
+
+```js
+async function _aStar(sx, sz, gx, gz, token) {
+  while (heap.size > 0) {
+    if (pfToken !== token) return null;   // a newer search has started
+
+    const cur = heap.pop();
+    // ... process node ...
+    pfExplored.add(key);
+
+    if (pathfindDelay > 0) {
+      _vizExplored();
+      await new Promise(r => setTimeout(r, pathfindDelay));
+      if (pfToken !== token) return null; // check again after the sleep
+    }
+  }
+}
+```
+
+When `pathfindDelay` is 0 there are no `await` calls, so the entire search runs synchronously in a single frame — no visual step-through, but instant results.
+
+---
+
+### Instanced Mesh Visualisation
+
+Three `InstancedMesh` objects share the same `PlaneGeometry(0.88, 0.88)` but have different `MeshBasicMaterial` colours. `depthTest: false` and explicit `renderOrder` values ensure they always render on top of the tile geometry in the correct stack order (explored → path → hover → destination).
+
+```js
+function _makeLayer(color, maxN, order) {
+  const m = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(0.88, 0.88),
+    new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.5,
+      depthWrite: false, depthTest: false,
+    }),
+    maxN
+  );
+  m.renderOrder = order;
+  scene.add(m);
+  return m;
+}
+
+const exploredLayer = _makeLayer(0x2255ff, MAX_TILES, 1);  // blue
+const pathLayer     = _makeLayer(0xff2222, MAX_TILES, 2);  // red
+const destLayer     = _makeLayer(0x22ff55, 1,         4);  // green
+```
+
+Each update sets instance matrices via a shared `_pfDummy` `Object3D` whose `rotation.x` is pre-set to `−π/2` so the plane lies flat on the ground.
+
+---
+
+### Path Following and Cancellation
+
+Once a path is found, `processInput` checks `pfState === 'following'` each tick. It calls `tryMove` for the next waypoint, increments `pfStepIdx`, and refreshes the path visualisation so the red highlight shrinks as the player walks. Pressing any movement key calls `cancelPathfind()`, which increments `pfToken` and clears all visualisation layers.
+
+```js
+if (pfState === 'following') {
+  const anyMove = held.has('ArrowUp') || /* ... */;
+  if (anyMove) { cancelPathfind(); /* fall through to keyboard */ }
+  else {
+    const next = pfPath[pfStepIdx];
+    if (tryMove(next.x, next.z, next.x - grid.x, next.z - grid.z)) {
+      pfStepIdx++;
+      _vizPath();   // trim walked tiles from red highlight
+    }
+    moveCooldown = moveDelay;
+    return;
+  }
+}
+```
+
+---
+
 ## Controls Reference
 
 | Key | Action |
@@ -923,6 +1038,7 @@ renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 | P | Toggle pause (PAUSED overlay) |
 | Esc | Open / close settings panel |
 | Right-click drag | Pan camera (decouples from player) |
+| Left-click tile  | Pathfind and auto-walk to that tile |
 
 ---
 
@@ -933,7 +1049,7 @@ iso-game/
 ├── index.html          # HTML shell — loads Three.js CDN + game.js
 ├── game.js             # All game logic
 ├── style.css           # Fullscreen canvas + HUD styling
-├── version.txt         # Current version string (e.g. 0.8.0)
+├── version.txt         # Current version string (e.g. 1.0.0)
 ├── CHANGELOG.md        # Per-version change history
 ├── CLAUDE.md           # Project rules for Claude (docs + versioning)
 ├── Dockerfile          # nginx:alpine static file server

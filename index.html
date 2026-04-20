@@ -101,6 +101,34 @@
         <button class="btn-reset" data-reset="hoverRaycast" title="Reset to default">⟳</button>
       </div>
 
+      <div class="settings-section-label">Pathfinding</div>
+      <div class="settings-row">
+        <label for="s-path-delay">Step Delay (ms)</label>
+        <input type="range"  id="s-path-delay" min="0" max="500" step="10" />
+        <input type="number" id="n-path-delay" min="0" max="500" step="10" />
+        <button class="btn-reset" data-reset="pathDelay" title="Reset to default">⟳</button>
+      </div>
+      <div class="settings-row checkbox-row">
+        <label for="s-click-to-move">Click to Move</label>
+        <input type="checkbox" id="s-click-to-move" />
+        <button class="btn-reset" data-reset="clickToMove" title="Reset to default">⟳</button>
+      </div>
+      <div class="settings-row checkbox-row">
+        <label for="s-show-path">Show Path</label>
+        <input type="checkbox" id="s-show-path" />
+        <button class="btn-reset" data-reset="showPathViz" title="Reset to default">⟳</button>
+      </div>
+      <div class="settings-row checkbox-row">
+        <label for="s-show-dest">Show Destination</label>
+        <input type="checkbox" id="s-show-dest" />
+        <button class="btn-reset" data-reset="showDestViz" title="Reset to default">⟳</button>
+      </div>
+      <div class="settings-row checkbox-row">
+        <label for="s-show-explore">Show Exploration</label>
+        <input type="checkbox" id="s-show-explore" />
+        <button class="btn-reset" data-reset="showExploreViz" title="Reset to default">⟳</button>
+      </div>
+
       <div id="settings-buttons">
         <button id="btn-reset-all">Restore Defaults</button>
         <button id="btn-save">Save &amp; Apply</button>

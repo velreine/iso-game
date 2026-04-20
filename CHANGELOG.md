@@ -6,6 +6,33 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.0] - 2026-04-21
+
+### Added
+- **Click-to-move** — left-click any walkable tile to pathfind to it; the cube
+  automatically walks the computed path one step per `moveDelay`
+- **A\* pathfinding** — min-heap priority queue, 8-directional movement,
+  diagonal cost √2, Chebyshev heuristic; handles the full 17×17 grid
+- **Step-by-step visualisation** with configurable delay:
+  - **Blue** — tiles explored by A* (the closed set, updated each step)
+  - **Red** — the planned path from current position to goal
+  - **Green** — the destination tile
+  - Three `InstancedMesh` layers with `depthTest:false` + `renderOrder` so
+    they always render on top of tile geometry in the correct stack order
+- **Pathfinding delay slider** (0–500 ms, default 30 ms) — set to 0 for
+  instant pathfinding, or increase to watch A* explore tile by tile
+- **Cancel on manual move** — pressing any movement key while following a
+  path cancels it immediately
+- **Token-based cancellation** — clicking a new tile while A* is still
+  searching safely aborts the previous search
+- **Settings section "Pathfinding"**: Step Delay slider + Click to Move,
+  Show Path, Show Destination, Show Exploration checkboxes (all with ⟳ reset)
+
+### Changed
+- `tryMove` hoisted to module scope so pathfinding can call it directly
+
+---
+
 ## [0.9.0] - 2026-04-19
 
 ### Added
