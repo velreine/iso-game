@@ -1079,7 +1079,12 @@ function animate() {
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObjects(tileMeshes);
     if (hits.length > 0) {
-      const m  = hits[0].object;
+      // Pick the hit with the highest Y intersection point rather than the
+      // closest one along the ray. In an isometric camera a floor tile at a
+      // lower z can be ray-closer than an elevated step tile that is visually
+      // in front of it; the highest Y surface is always what the eye sees.
+      const best = hits.reduce((a, b) => a.point.y > b.point.y ? a : b);
+      const m  = best.object;
       const tx = Math.round(m.position.x);
       const tz = Math.round(m.position.z);
       const td = tileMap[tx]?.[tz];
