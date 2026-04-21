@@ -6,6 +6,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.2] - 2026-04-21
+
+### Added
+- **Scroll-wheel zoom** — mouse wheel adjusts `viewSize` (6–18) in real time
+  without opening the Settings menu; step size 0.8 per tick, zoom slider stays
+  in sync when Settings is next opened
+- **Debug Raycast mode** (Settings → Visual → Debug Raycast) — when enabled:
+  - A cyan `THREE.Line` is drawn from the orthographic ray origin to the selected
+    hit point each frame
+  - A green sphere marks the exact intersection point
+  - A HUD overlay lists every tile the ray hit: tile coords, elevation, hitY,
+    and a `◀` marker on the winning hit
+
+---
+
 ## [1.2.1] - 2026-04-21
 
 ### Fixed

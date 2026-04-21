@@ -22,6 +22,7 @@ let gravity             = 22;     // downward acceleration
 let camFollowSpeed      = 8;      // camera position lerp rate
 let cornerSlidingEnabled  = true;  // auto-slide along obstacles
 let hoverRaycastEnabled   = true;  // mouse hover raycast + tile highlight
+let debugRayEnabled       = false; // draw the raycast ray + list all hits
 let clickToMoveEnabled    = true;  // left-click to pathfind to a tile
 let showPathViz           = true;  // show planned path in red
 let showDestViz           = true;  // show target tile in green
@@ -42,6 +43,7 @@ const DEFAULTS = {
   showRay:         true,
   showAxes:        false,
   hoverRaycast:    true,
+  debugRay:        false,
   clickToMove:     true,
   showPathViz:     true,
   showDestViz:     true,
@@ -445,6 +447,31 @@ hoverHighlight.material.depthTest = false;
 hoverHighlight.renderOrder = 5;      // always on top of pathfinding layers
 scene.add(hoverHighlight);
 
+// ─── Debug raycast visualisation ──────────────────────────────────────────────
+// Toggled via Settings → Visual → Debug Raycast.
+// Draws a cyan line from the ray origin to the selected hit point, places a
+// green sphere at the hit, and prints a per-hit breakdown in a HUD overlay.
+
+// Cyan line: two mutable vertices updated every frame
+const _dbgRayPts = [new THREE.Vector3(), new THREE.Vector3()];
+const _dbgRayGeo = new THREE.BufferGeometry().setFromPoints(_dbgRayPts);
+const debugRayLine = new THREE.Line(
+  _dbgRayGeo,
+  new THREE.LineBasicMaterial({ color: 0x00ffee, depthTest: false })
+);
+debugRayLine.renderOrder = 12;
+debugRayLine.visible = false;
+scene.add(debugRayLine);
+
+// Green sphere at the intersection point
+const debugHitMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.1, 8, 6),
+  new THREE.MeshBasicMaterial({ color: 0x00ff88, depthTest: false })
+);
+debugHitMarker.renderOrder = 13;
+debugHitMarker.visible = false;
+scene.add(debugHitMarker);
+
 // ─── Pathfinding visualisation layers ────────────────────────────────────────
 // Three InstancedMesh objects share the same flat plane geometry; each instance
 // is positioned at a tile. depthTest:false + renderOrder keeps them stacked
@@ -501,6 +528,20 @@ window.addEventListener('mouseup', e => {
 });
 // Suppress context menu so right-click doesn't open the browser menu
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+// Scroll-wheel zoom — adjusts viewSize directly without opening Settings
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault();
+  const dir     = e.deltaY > 0 ? 1 : -1;   // +1 = zoom out, −1 = zoom in
+  const newSize = Math.max(6, Math.min(18, viewSize + dir * 0.8));
+  if (newSize === viewSize) return;
+  viewSize         = newSize;
+  camera.left      = -viewSize * aspect;
+  camera.right     =  viewSize * aspect;
+  camera.top       =  viewSize;
+  camera.bottom    = -viewSize;
+  camera.updateProjectionMatrix();
+}, { passive: false });
 
 window.addEventListener('mousemove', e => {
   // Always update the normalised mouse position for hover raycasting
@@ -673,7 +714,8 @@ const coordsEl   = document.getElementById('coords');
 const tileInfoEl = document.getElementById('tile-info');
 const fpsEl         = document.getElementById('fps');
 const orientationEl = document.getElementById('orientation');
-const hoverInfoEl   = document.getElementById('hover-info');
+const hoverInfoEl    = document.getElementById('hover-info');
+const debugRayInfoEl = document.getElementById('debug-ray-info');
 const panIndicatorEl = document.getElementById('pan-indicator');
 let fpsAccum  = 0;
 let fpsFrames = 0;
@@ -1112,15 +1154,50 @@ function animate() {
           `hover  [${tx}, ${tz}]  ${hoveredTile.type}  walkable: ${hoveredTile.walkable}`;
         hoverInfoEl.style.display = '';
       }
+
+      // ── Debug raycast overlay ─────────────────────────────────────────────
+      if (debugRayEnabled) {
+        // Cyan ray line: from ray origin to best hit point
+        const ray = raycaster.ray;
+        const dbgPos = _dbgRayGeo.attributes.position;
+        dbgPos.setXYZ(0, ray.origin.x, ray.origin.y, ray.origin.z);
+        dbgPos.setXYZ(1, best.point.x,  best.point.y,  best.point.z);
+        dbgPos.needsUpdate = true;
+        debugRayLine.visible = true;
+        // Green sphere at intersection
+        debugHitMarker.position.copy(best.point);
+        debugHitMarker.visible = true;
+        // HUD: list every hit with elevation and Y so tile selection is transparent
+        const hitLines = hits.map((h, i) => {
+          const hx = Math.round(h.object.position.x);
+          const hz = Math.round(h.object.position.z);
+          const he = (tileMap[hx]?.[hz]?.elevation || 0).toFixed(2);
+          const hy = h.point.y.toFixed(3);
+          const mark = (h === best) ? ' ◀' : '';
+          return `  [${i}] (${hx},${hz})  elev:${he}  hitY:${hy}${mark}`;
+        });
+        debugRayInfoEl.textContent = `ray hits: ${hits.length}\n${hitLines.join('\n')}`;
+        debugRayInfoEl.style.display = '';
+      } else {
+        debugRayLine.visible = false;
+        debugHitMarker.visible = false;
+        debugRayInfoEl.style.display = 'none';
+      }
     } else {
       hoveredTile = null;
       hoverHighlight.visible = false;
       hoverInfoEl.style.display = 'none';
+      debugRayLine.visible = false;
+      debugHitMarker.visible = false;
+      debugRayInfoEl.style.display = 'none';
     }
   } else {
     hoveredTile = null;
     hoverHighlight.visible = false;
     hoverInfoEl.style.display = 'none';
+    debugRayLine.visible = false;
+    debugHitMarker.visible = false;
+    debugRayInfoEl.style.display = 'none';
   }
 
   // ── Pan indicator ─────────────────────────────────────────────────────────
@@ -1213,6 +1290,7 @@ function syncMenuToState() {
   document.getElementById('s-show-ray').checked     = rayArrow.visible;
   document.getElementById('s-show-axes').checked        = axesHelper.visible;
   document.getElementById('s-hover-raycast').checked    = hoverRaycastEnabled;
+  document.getElementById('s-debug-ray').checked        = debugRayEnabled;
   document.getElementById('s-click-to-move').checked    = clickToMoveEnabled;
   document.getElementById('s-show-path').checked        = showPathViz;
   document.getElementById('s-show-dest').checked        = showDestViz;
@@ -1244,6 +1322,7 @@ function applyDefault(key) {
     case 'showRay':        document.getElementById('s-show-ray').checked       = DEFAULTS.showRay; break;
     case 'showAxes':       document.getElementById('s-show-axes').checked      = DEFAULTS.showAxes; break;
     case 'hoverRaycast':   document.getElementById('s-hover-raycast').checked  = DEFAULTS.hoverRaycast; break;
+    case 'debugRay':       document.getElementById('s-debug-ray').checked      = DEFAULTS.debugRay; break;
     case 'clickToMove':    document.getElementById('s-click-to-move').checked  = DEFAULTS.clickToMove; break;
     case 'showPathViz':    document.getElementById('s-show-path').checked      = DEFAULTS.showPathViz; break;
     case 'showDestViz':    document.getElementById('s-show-dest').checked      = DEFAULTS.showDestViz; break;
@@ -1289,6 +1368,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
   rayArrow.visible            = document.getElementById('s-show-ray').checked;
   axesHelper.visible          = document.getElementById('s-show-axes').checked;
   hoverRaycastEnabled         = document.getElementById('s-hover-raycast').checked;
+  debugRayEnabled             = document.getElementById('s-debug-ray').checked;
   clickToMoveEnabled          = document.getElementById('s-click-to-move').checked;
   showPathViz                 = document.getElementById('s-show-path').checked;
   showDestViz                 = document.getElementById('s-show-dest').checked;
