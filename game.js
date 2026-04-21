@@ -293,7 +293,7 @@ for (const [key, elev] of Object.entries(DAIS_ELEVATIONS)) {
 // A dark stone slab resting at the centre of the dais platform.
 const altarMesh = new THREE.Mesh(
   new THREE.BoxGeometry(1.8, 0.45, 0.85),
-  new THREE.MeshLambertMaterial({ color: 0x1e1e2e, emissive: 0x18103a, emissiveIntensity: 0.7 })
+  new THREE.MeshLambertMaterial({ color: 0x2a2a2a, emissive: 0x111111, emissiveIntensity: 0.3 })
 );
 altarMesh.position.set(0, _STEP_H * 3 + 0.225, 19);
 altarMesh.castShadow = true;
@@ -1175,14 +1175,17 @@ function animate() {
         // Green sphere at intersection
         debugHitMarker.position.copy(best.point);
         debugHitMarker.visible = true;
-        // HUD: list every hit with elevation and Y so tile selection is transparent
+        // HUD: list every hit with full tile metadata
         const hitLines = hits.map((h, i) => {
-          const hx = Math.round(h.object.position.x);
-          const hz = Math.round(h.object.position.z);
-          const he = (tileMap[hx]?.[hz]?.elevation || 0).toFixed(2);
-          const hy = h.point.y.toFixed(3);
-          const mark = (h === best) ? ' ◀' : '';
-          return `  [${i}] (${hx},${hz})  elev:${he}  hitY:${hy}${mark}`;
+          const hx   = Math.round(h.object.position.x);
+          const hz   = Math.round(h.object.position.z);
+          const tile = tileMap[hx]?.[hz];
+          const he   = (tile?.elevation || 0).toFixed(2);
+          const hy   = h.point.y.toFixed(3);
+          const type = tile?.type     ?? 'unknown';
+          const walk = tile?.walkable ? 'yes' : 'no';
+          const mark = (h === best)   ? ' ◀' : '';
+          return `  [${i}] (${hx},${hz})  type:${type}  walkable:${walk}  elev:${he}  hitY:${hy}${mark}`;
         });
         debugRayInfoEl.textContent = `ray hits: ${hits.length}\n${hitLines.join('\n')}`;
         debugRayInfoEl.style.display = '';

@@ -6,6 +6,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.4] - 2026-04-21
+
+### Changed
+- **Altar colour** — material updated to neutral dark grey (`0x2a2a2a`, emissive `0x111111`
+  at 0.3 intensity) replacing the previous blue-tinted dark tone; the slab now reads as
+  plain stone under the dais light
+- **Debug Raycast HUD** — each hit line now shows full tile metadata:
+  `type`, `walkable`, `elev`, and `hitY`, making it straightforward to see what kind of
+  tile was hit and whether it is navigable (e.g. `type:platform  walkable:yes  elev:0.90  hitY:0.923 ◀`)
+
+---
+
 ## [1.2.3] - 2026-04-21
 
 ### Added
