@@ -297,6 +297,10 @@ altarMesh.position.set(0, _STEP_H * 3 + 0.225, 19);
 altarMesh.castShadow = true;
 scene.add(altarMesh);
 
+// The altar occupies tile (0,19) — mark it unwalkable so hover and pathfinding
+// don't treat the space under the slab as navigable.
+if (tileMap[0]?.[19]) tileMap[0][19].walkable = false;
+
 // Soft blue-purple ambient light hovering above the altar — pulsed in animate()
 const daisLight = new THREE.PointLight(0x7070ff, 1.5, 10);
 daisLight.position.set(0, _STEP_H * 3 + 2.2, 19);
@@ -1079,11 +1083,17 @@ function animate() {
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObjects(tileMeshes);
     if (hits.length > 0) {
-      // Pick the hit with the highest Y intersection point rather than the
-      // closest one along the ray. In an isometric camera a floor tile at a
-      // lower z can be ray-closer than an elevated step tile that is visually
-      // in front of it; the highest Y surface is always what the eye sees.
-      const best = hits.reduce((a, b) => a.point.y > b.point.y ? a : b);
+      // Pick the hit whose tile has the highest elevation; break ties by the
+      // highest intersection-point Y. This is more robust than ray-distance
+      // ordering because an isometric ray can be geometrically closer to a
+      // floor tile at a lower Z than to the elevated step tile that is visually
+      // in front of it. Elevation-first selection always picks the topmost tile.
+      const best = hits.reduce((a, b) => {
+        const ae = tileMap[Math.round(a.object.position.x)]?.[Math.round(a.object.position.z)]?.elevation || 0;
+        const be = tileMap[Math.round(b.object.position.x)]?.[Math.round(b.object.position.z)]?.elevation || 0;
+        if (be !== ae) return be > ae ? b : a;
+        return b.point.y > a.point.y ? b : a;
+      }, hits[0]);
       const m  = best.object;
       const tx = Math.round(m.position.x);
       const tz = Math.round(m.position.z);
