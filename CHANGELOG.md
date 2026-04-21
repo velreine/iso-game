@@ -6,6 +6,31 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.0] - 2026-04-21
+
+### Added
+- **Tile elevation system** — `tileMap` entries now carry an optional `elevation` field
+  (world-Y of the tile's top surface); tiles without it default to 0
+- **`playerBaseY`** — a new state variable that lerps toward the current tile's elevation
+  each frame; `playerMesh.position.y` is now `PLAYER_SIZE/2 + playerJumpY + bob + playerBaseY`,
+  so the player cube smoothly rises and descends as it crosses steps
+- **Raised dais in Room 2** — a 5×5 platform at elevation 0.9 (x: −2..2, z: 17..21)
+  with matching cool-blue stone geometry; stairs of 3 tiles wide on both the north
+  (z: 15..16) and south (z: 22..23) faces, each step rising 0.3 units
+- **Step geometry** — dais tiles use a taller `BoxGeometry` whose bottom sits at
+  `y = −TILE_THICKNESS/2` and whose top surface sits at exactly `elevation`, so
+  the step side-faces are always solid with no gap to the floor below
+- **Altar** — a dark emissive stone slab (1.8 × 0.45 × 0.85) resting on the platform
+  centre at (0, 1.125, 19)
+- **Dais point light** — a soft blue-purple `PointLight` above the altar that pulses
+  gently (`1.2 ± 0.4` intensity at 1.5 Hz)
+- **Cliff-jump prevention** — `tryMove` and the A\* neighbour loop both reject moves
+  where `|toElevation − fromElevation| > MAX_STEP_HEIGHT (0.32)`; the staircase is
+  the only route onto (or off) the platform, and the pathfinder respects this
+- Shadow blob `position.y` tracks `playerBaseY` so it always rests on the tile surface
+
+---
+
 ## [1.1.0] - 2026-04-20
 
 ### Added

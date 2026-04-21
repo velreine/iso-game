@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(ipconfig)",
-      "Bash(findstr /i \"IPv4\")",
-      "Bash(docker compose *)"
-    ]
-  }
-}

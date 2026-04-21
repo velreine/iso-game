@@ -18,6 +18,7 @@ A step-by-step record of every feature added to the game, with the most importan
 10. [Stage 10 — Camera Pan (Right-Click Drag)](#stage-10)
 11. [Stage 11 — Click-to-Move with A\* Pathfinding](#stage-11)
 12. [Stage 12 — Multi-Room Map, Walls & Wall Transparency](#stage-12)
+13. [Stage 13 — Tile Elevation, Dais & Staircase](#stage-13)
 
 ---
 
@@ -1161,6 +1162,95 @@ for (const wd of wallData) {
 ```
 
 `WALL_FADE_NEAR = 2.5` / `WALL_FADE_FAR = 4.5` means walls start fading at 4.5 units and reach minimum opacity (`0.12`) at 2.5 units — enough to always show the player cube even when pressed against a corner.
+
+---
+
+<a name="stage-13"></a>
+## Stage 13 — Tile Elevation, Dais & Staircase
+
+### Goal
+Add a third dimension to tile navigation: tiles can have an elevation (height), the player cube smoothly follows that height, and large steps the player can't climb are blocked both from keyboard input and pathfinding.
+
+---
+
+### Tile Elevation Model
+
+Each `tileMap` entry gains an optional `elevation` field — the world-Y of the tile's top surface. Tiles without it default to 0 (the existing flat floor). All downstream systems (rendering, pathfinding, movement) read this value through `tileMap[x]?.[z]?.elevation || 0`, so flat tiles need no change.
+
+---
+
+### Step Geometry
+
+The core rendering challenge: a step tile must look solid — no gap between its side face and the floor below. The trick is to make the `BoxGeometry` taller than `TILE_THICKNESS` so it fills downward to the floor:
+
+```js
+// height fills from y = −TILE_THICKNESS/2 (below ground) up to y = elev (top surface)
+const geom = new THREE.BoxGeometry(1 - TILE_GAP, elev + TILE_THICKNESS, 1 - TILE_GAP);
+
+// Center the box so its top face is exactly at elev
+tile.position.set(x, (elev - TILE_THICKNESS) / 2, z);
+```
+
+For `elev = 0`, this reduces to the standard tile: height = `TILE_THICKNESS`, center = `−TILE_THICKNESS/2`. For a step at `elev = 0.3`, the box is 0.52 units tall and the top face sits flush at 0.3.
+
+---
+
+### playerBaseY
+
+A new variable `playerBaseY` lerps toward the current tile's elevation each frame using the same exponential lerp already used for XZ movement:
+
+```js
+const curTileElev = tileMap[grid.x]?.[grid.z]?.elevation || 0;
+playerBaseY += (curTileElev - playerBaseY) * lerpK;   // lerpK = 1 − exp(−dt × 20)
+
+playerMesh.position.y = PLAYER_SIZE / 2 + playerJumpY + bob + playerBaseY;
+shadowBlob.position.y = playerBaseY + 0.002;
+```
+
+Jump physics (`playerJumpY`) remain unchanged — the jump arc is relative to `playerBaseY`, so the cube lands correctly whether it is at ground level or on the platform.
+
+---
+
+### Cliff-Jump Prevention
+
+Without a guard, `isWalkable` would allow the player to step directly from a floor tile to the 0.9-unit-tall platform edge — an impossible cliff. One check in both `tryMove` and the A\* neighbour loop blocks any move where the elevation difference exceeds `MAX_STEP_HEIGHT = _STEP_H + 0.02 = 0.32`:
+
+```js
+const fromElev = tileMap[grid.x]?.[grid.z]?.elevation || 0;
+const toElev   = tileMap[tx]?.[tz]?.elevation   || 0;
+if (Math.abs(toElev - fromElev) > MAX_STEP_HEIGHT) return false;
+```
+
+Because the same check is in `_aStar`, the pathfinder automatically routes through the stairs rather than trying to find a shortcut over the edge.
+
+---
+
+### Dais Layout
+
+```
+Room 2  z: 14..24
+               z=14 ──── floor
+               z=15 ──── step ×3 (x: −1..1)  elev 0.3
+               z=16 ──── step ×3 (x: −1..1)  elev 0.6
+          z=17..21 ──── platform ×5 (x: −2..2)  elev 0.9
+               z=22 ──── step ×3 (x: −1..1)  elev 0.6
+               z=23 ──── step ×3 (x: −1..1)  elev 0.3
+               z=24 ──── floor
+```
+
+The platform is 5 wide but the stairs are 3 wide, leaving 2 floor tiles on each side of the stairs so the player can walk around the base without accessing the top.
+
+---
+
+### Altar & Dais Light
+
+An emissive dark-stone slab rests at the platform centre, accompanied by a pulsing blue-purple point light:
+
+```js
+daisLight.intensity = 1.2 + Math.sin(t * 1.5) * 0.4;
+```
+
+The slower pulse rate (1.5 Hz) contrasts with the lava light (2.8 Hz) to give each area its own atmospheric rhythm.
 
 ---
 

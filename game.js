@@ -149,6 +149,48 @@ const ROOM2_COLORS = [
 ];
 const DOOR_COLOR = 0x6a6040;   // warm threshold tiles at corridor ends
 
+// ─── Dais (raised platform) in Room 2 ────────────────────────────────────────
+// Layout inside Room 2 (x: −5..5, z: 14..24):
+//   Stairs north  x: −1..1,  z: 15..16  (2 steps ascending into Room 2)
+//   Platform      x: −2..2,  z: 17..21  (elevation 0.9)
+//   Stairs south  x: −1..1,  z: 22..23  (2 steps descending)
+//
+const _STEP_H = 0.3;   // height per stair step (and platform = 3 × _STEP_H)
+
+const DAIS_ELEVATIONS = {};   // "x,z" → world-Y of tile top surface
+// North stairs
+for (let x = -1; x <= 1; x++) {
+  DAIS_ELEVATIONS[`${x},15`] = _STEP_H;
+  DAIS_ELEVATIONS[`${x},16`] = _STEP_H * 2;
+}
+// Platform
+for (let x = -2; x <= 2; x++) {
+  for (let z = 17; z <= 21; z++) {
+    DAIS_ELEVATIONS[`${x},${z}`] = _STEP_H * 3;
+  }
+}
+// South stairs
+for (let x = -1; x <= 1; x++) {
+  DAIS_ELEVATIONS[`${x},22`] = _STEP_H * 2;
+  DAIS_ELEVATIONS[`${x},23`] = _STEP_H;
+}
+
+// Only allow movement between tiles whose top surfaces differ by at most one step
+const MAX_STEP_HEIGHT = _STEP_H + 0.02;
+
+const DAIS_STEP_COLORS = [0x485070, 0x455068, 0x4a5272];
+const DAIS_PLAT_COLORS = [0x3a4868, 0x384562, 0x3c4a6c];
+
+// Cache BoxGeometry per distinct elevation so we don't recreate identical geometry
+const _daisGeomCache = {};
+function _getDaisGeom(elev) {
+  if (!_daisGeomCache[elev]) {
+    // Height fills from y = −TILE_THICKNESS/2 (below ground) up to y = elev (top surface)
+    _daisGeomCache[elev] = new THREE.BoxGeometry(1 - TILE_GAP, elev + TILE_THICKNESS, 1 - TILE_GAP);
+  }
+  return _daisGeomCache[elev];
+}
+
 // Wall config — walls are generated on every walkable-tile edge bordering empty space
 const WALL_HEIGHT    = 0.9;
 const WALL_FADE_NEAR = 2.5;   // distance (world units) where walls begin fading
@@ -210,9 +252,11 @@ for (let x = CORR_X_MIN; x <= CORR_X_MAX; x++) {
 }
 
 // ─── Room 2 tiles ─────────────────────────────────────────────────────────────
+// Dais tiles are skipped here and generated separately with elevation geometry.
 for (let x = ROOM2_X_MIN; x <= ROOM2_X_MAX; x++) {
   if (!tileMap[x]) tileMap[x] = {};
   for (let z = ROOM2_Z_MIN; z <= ROOM2_Z_MAX; z++) {
+    if (DAIS_ELEVATIONS[`${x},${z}`] !== undefined) continue;   // handled below
     const color = ROOM2_COLORS[Math.floor(Math.random() * ROOM2_COLORS.length)];
     const mat   = new THREE.MeshLambertMaterial({ color });
     const tile  = new THREE.Mesh(tileGeom, mat);
@@ -223,6 +267,40 @@ for (let x = ROOM2_X_MIN; x <= ROOM2_X_MAX; x++) {
     tileMap[x][z] = { walkable: true, type: 'stone2', mesh: tile };
   }
 }
+
+// ─── Dais tiles (elevated stair + platform geometry) ─────────────────────────
+for (const [key, elev] of Object.entries(DAIS_ELEVATIONS)) {
+  const [x, z] = key.split(',').map(Number);
+  const isPlatform = elev >= _STEP_H * 3 - 0.01;
+  const palette    = isPlatform ? DAIS_PLAT_COLORS : DAIS_STEP_COLORS;
+  const color      = palette[Math.floor(Math.random() * palette.length)];
+  const mat        = new THREE.MeshLambertMaterial({ color });
+  const geom       = _getDaisGeom(elev);
+  const tile       = new THREE.Mesh(geom, mat);
+  // Center Y: bottom = −TILE_THICKNESS/2, top = elev
+  tile.position.set(x, (elev - TILE_THICKNESS) / 2, z);
+  tile.receiveShadow = true;
+  scene.add(tile);
+  tileMeshes.push(tile);
+  if (!tileMap[x]) tileMap[x] = {};
+  tileMap[x][z] = { walkable: true, type: isPlatform ? 'platform' : 'step',
+                    elevation: elev, mesh: tile };
+}
+
+// ─── Altar ────────────────────────────────────────────────────────────────────
+// A dark stone slab resting at the centre of the dais platform.
+const altarMesh = new THREE.Mesh(
+  new THREE.BoxGeometry(1.8, 0.45, 0.85),
+  new THREE.MeshLambertMaterial({ color: 0x1e1e2e, emissive: 0x18103a, emissiveIntensity: 0.7 })
+);
+altarMesh.position.set(0, _STEP_H * 3 + 0.225, 19);
+altarMesh.castShadow = true;
+scene.add(altarMesh);
+
+// Soft blue-purple ambient light hovering above the altar — pulsed in animate()
+const daisLight = new THREE.PointLight(0x7070ff, 1.5, 10);
+daisLight.position.set(0, _STEP_H * 3 + 2.2, 19);
+scene.add(daisLight);
 
 // ─── Walls ────────────────────────────────────────────────────────────────────
 // For every walkable tile, check each of the 4 cardinal neighbours. If there is
@@ -585,6 +663,7 @@ let moveCooldown = 0;
 let jumpVelocity = 0;
 let isGrounded   = true;
 let playerJumpY  = 0;
+let playerBaseY  = 0;   // world-Y of the current tile's top surface (follows tile elevation)
 
 const coordsEl   = document.getElementById('coords');
 const tileInfoEl = document.getElementById('tile-info');
@@ -611,6 +690,11 @@ function isWalkable(x, z) {
 // ── tryMove (hoisted so pathfinding can call it) ──────────────────────────────
 function tryMove(tx, tz, faceDx, faceDz) {
   if (!isWalkable(tx, tz)) return false;
+  // Prevent cliff teleports — only allow moves where elevation differs by ≤ one step.
+  // This forces staircase use and stops the player jumping off (or onto) the platform edges.
+  const fromElev = tileMap[grid.x]?.[grid.z]?.elevation || 0;
+  const toElev   = tileMap[tx]?.[tz]?.elevation   || 0;
+  if (Math.abs(toElev - fromElev) > MAX_STEP_HEIGHT) return false;
   grid.x = tx;
   grid.z = tz;
   playerMesh.rotation.y = Math.atan2(-faceDx, -faceDz);
@@ -754,6 +838,10 @@ async function _aStar(sx, sz, gx, gz, token) {
     for (const [dx, dz] of _DIRS8) {
       const nx = cur.x + dx, nz = cur.z + dz;
       if (!isWalkable(nx, nz)) continue;
+      // Respect elevation cliff limit so pathfinder uses stairs, not edges
+      const curElev = tileMap[cur.x]?.[cur.z]?.elevation || 0;
+      const nxElev  = tileMap[nx]?.[nz]?.elevation  || 0;
+      if (Math.abs(nxElev - curElev) > MAX_STEP_HEIGHT) continue;
       const nk = `${nx},${nz}`;
       if (closed.has(nk)) continue;
       const cost = (dx !== 0 && dz !== 0) ? Math.SQRT2 : 1;
@@ -933,19 +1021,27 @@ function animate() {
   playerMesh.position.x += (grid.x - playerMesh.position.x) * lerpK;
   playerMesh.position.z += (grid.z - playerMesh.position.z) * lerpK;
 
+  // Smoothly track the elevation of the current tile
+  const curTileElev = tileMap[grid.x]?.[grid.z]?.elevation || 0;
+  playerBaseY += (curTileElev - playerBaseY) * lerpK;
+
   // Idle bob only when on the ground; suppress during jump
   const bob = isGrounded ? Math.sin(t * 2.5) * 0.03 : 0;
-  playerMesh.position.y = PLAYER_SIZE / 2 + playerJumpY + bob;
+  playerMesh.position.y = PLAYER_SIZE / 2 + playerJumpY + bob + playerBaseY;
 
-  // Shadow shrinks / fades as player rises
+  // Shadow shrinks / fades as player rises; sits on the tile surface
   const shadowS = Math.max(0.15, 1 - playerJumpY * 0.18);
   shadowBlob.scale.set(shadowS, 1, shadowS);
   shadowBlob.material.opacity = 0.25 * shadowS;
   shadowBlob.position.x = playerMesh.position.x;
   shadowBlob.position.z = playerMesh.position.z;
+  shadowBlob.position.y = playerBaseY + 0.002;
 
   // ── Lava glow pulse ───────────────────────────────────────────────────────
   lavaLight.intensity = 1.8 + Math.sin(t * 2.8) * 0.6;
+
+  // ── Dais light pulse ──────────────────────────────────────────────────────
+  daisLight.intensity = 1.2 + Math.sin(t * 1.5) * 0.4;
 
   // ── Wall transparency — fade walls near the player so they never occlude ──
   {
