@@ -1243,8 +1243,9 @@ function animate() {
         // Green sphere at intersection
         debugHitMarker.position.copy(best.point);
         debugHitMarker.visible = true;
-        // HUD: list every hit with full tile metadata
-        const hitLines = hits.map((h, i) => {
+        // HUD: winner first, then remaining hits in ray-distance order
+        const sortedHits = [best, ...hits.filter(h => h !== best)];
+        const hitLines = sortedHits.map((h, i) => {
           const hx   = Math.round(h.object.position.x);
           const hz   = Math.round(h.object.position.z);
           const tile = tileMap[hx]?.[hz];
@@ -1252,7 +1253,7 @@ function animate() {
           const hy   = h.point.y.toFixed(3);
           const type = tile?.type     ?? 'unknown';
           const walk = tile?.walkable ? 'yes' : 'no';
-          const mark = (h === best)   ? ' ◀' : '';
+          const mark = i === 0 ? ' ◀ selected' : '';
           return `  [${i}] (${hx},${hz})  type:${type}  walkable:${walk}  elev:${he}  hitY:${hy}${mark}`;
         });
         debugRayInfoEl.textContent = `ray hits: ${hits.length}\n${hitLines.join('\n')}`;

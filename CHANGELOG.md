@@ -6,6 +6,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.1] - 2026-04-22
+
+### Fixed
+- **Debug Raycast HUD** — hit list is now sorted winner-first; the selected tile
+  always appears at index 0 labelled `◀ selected`, with the remaining hits in
+  ray-distance order below it. The selection logic (elevation-first, hitY
+  tiebreaker) is the same function used by both hover highlighting and
+  click-to-move navigation — debug, hover, and pathfinding are now fully consistent
+
+---
+
 ## [1.3.0] - 2026-04-22
 
 ### Added
