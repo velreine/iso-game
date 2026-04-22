@@ -1379,3 +1379,11 @@ The new level engine in `game.js` exposes three functions: `buildLevel(data)` co
 Light pulses (`base + sin(t*freq+phase)*amp`) are now driven by data in each level's `lights[]` array, replacing the three hardcoded animate() lines with a single generic loop.
 
 A level-select overlay is shown on launch. It reads `window.LEVELS` at runtime so future levels auto-appear in the menu as their scripts are added. Portals are stubbed in the data format for Level 1 and will activate transitions in a later stage.
+
+## Stage 17 — Room 4 & Full Loop (v1.4.1)
+
+Added a fourth room (mossy green stone, east of Room 1) and a second z-axis ramp descending from Room 3's south face, completing a navigable loop through all rooms: Room 1 → north corridor → Room 2 → east ramp → Room 3 → south ramp → Room 4 → west opening → Room 1.
+
+The connection between Room 1 and Room 4 requires no corridor — the wall generator skips walls wherever adjacent tiles exist in `tileMap`, so placing Room 4 at xMin:9 directly beside Room 1's xMax:8 opens a wide doorway for free.
+
+`_lvlBuildRampRoom` was extended to support `elevationAxis: 'z'`, stepping elevation per z-row (instead of x-column). The logic unifies into a single loop parameterised by axis, keeping the x-case unchanged.

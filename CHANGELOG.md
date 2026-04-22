@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.1] - 2026-04-22
+### Added
+- **Room 4 — The Ruined Court**: mossy green-stone room east of Room 1 (x:9–17, z:−6–6), opens directly through Room 1's east wall with no corridor needed
+- **Ramp 2**: 3-tile-wide south descender from Room 3 (elevation 1.5) to Room 4 (ground), closing the loop through all four rooms
+- **z-axis ramp support**: `_lvlBuildRampRoom` now respects `elevationAxis: 'z'`, stepping elevation per z-row instead of per x-column
+- Two mossy pillars at the Room 1 / Room 4 junction; green pulsing point light in Room 4
+
+---
+
 ## [1.4.0] - 2026-04-22
 ### Added
 - Multi-level architecture: level data extracted to `levels/level1.js` using `window.LEVELS` global pattern

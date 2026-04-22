@@ -191,20 +191,27 @@ function _lvlBuildCorridorRoom(room) {
 }
 
 function _lvlBuildRampRoom(room) {
-  const cols = room.xMax - room.xMin + 1;
-  for (let col = 0; col < cols; col++) {
-    const x    = room.xMin + col;
-    const elev = room.elevationStart + _STEP_H * col;
-    if (!tileMap[x]) tileMap[x] = {};
-    for (let z = room.zMin; z <= room.zMax; z++) {
-      const color = room.palette[Math.floor(Math.random() * room.palette.length)];
-      const mat   = new THREE.MeshLambertMaterial({ color });
-      const tile  = new THREE.Mesh(_getDaisGeom(elev), mat);
-      tile.position.set(x, (elev - TILE_THICKNESS) / 2, z);
-      tile.receiveShadow = true;
-      scene.add(tile);
-      tileMeshes.push(tile);
-      tileMap[x][z] = { walkable: true, type: room.tileType, elevation: elev, mesh: tile };
+  // supports elevationAxis: 'x' (default) or 'z'
+  const axis  = room.elevationAxis || 'x';
+  const steps = axis === 'z' ? (room.zMax - room.zMin + 1) : (room.xMax - room.xMin + 1);
+  for (let step = 0; step < steps; step++) {
+    const elev = room.elevationStart + _STEP_H * step;
+    const x0   = axis === 'z' ? room.xMin       : room.xMin + step;
+    const x1   = axis === 'z' ? room.xMax       : x0;
+    const z0   = axis === 'z' ? room.zMin + step : room.zMin;
+    const z1   = axis === 'z' ? z0              : room.zMax;
+    for (let x = x0; x <= x1; x++) {
+      if (!tileMap[x]) tileMap[x] = {};
+      for (let z = z0; z <= z1; z++) {
+        const color = room.palette[Math.floor(Math.random() * room.palette.length)];
+        const mat   = new THREE.MeshLambertMaterial({ color });
+        const tile  = new THREE.Mesh(_getDaisGeom(elev), mat);
+        tile.position.set(x, (elev - TILE_THICKNESS) / 2, z);
+        tile.receiveShadow = true;
+        scene.add(tile);
+        tileMeshes.push(tile);
+        tileMap[x][z] = { walkable: true, type: room.tileType, elevation: elev, mesh: tile };
+      }
     }
   }
 }

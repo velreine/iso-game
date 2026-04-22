@@ -69,6 +69,21 @@
         // elevation increases along +x, starting at stepHeight, one step per column
         elevationAxis: 'x', elevationStart: 0.3,
       },
+      {
+        id: 'room4', type: 'stone', tileType: 'stone4',
+        xMin: 9, xMax: 17, zMin: -6, zMax: 6,
+        palette: [
+          0x3d5a3e, 0x344f35, 0x406043, 0x384d3a,
+          0x3b5540, 0x425e44, 0x365238, 0x3e583f,
+        ],
+      },
+      {
+        id: 'ramp2', type: 'ramp', tileType: 'ramp2',
+        xMin: 13, xMax: 15, zMin: 7, zMax: 11,
+        palette: [0x7e6e58, 0x726450, 0x7a6a58],
+        // elevation increases along +z, connecting Room 4 (ground) to Room 3 (elev 1.5)
+        elevationAxis: 'z', elevationStart: 0.3,
+      },
     ],
 
     // ── Elevated tiles (dais staircase + platform) ───────────────────────────
@@ -136,6 +151,8 @@
       { id: 'pillar_r1_ne', type: 'box', x:  1.5, y: 0.9, z:  8.5, w: 0.28, h: 1.8, d: 0.28, color: 0x706858, castShadow: true },
       { id: 'pillar_r2_sw', type: 'box', x: -1.5, y: 0.9, z: 13.5, w: 0.28, h: 1.8, d: 0.28, color: 0x706858, castShadow: true },
       { id: 'pillar_r2_se', type: 'box', x:  1.5, y: 0.9, z: 13.5, w: 0.28, h: 1.8, d: 0.28, color: 0x706858, castShadow: true },
+      { id: 'pillar_r4_n',  type: 'box', x:  9.5, y: 0.9, z:  1.5, w: 0.28, h: 1.8, d: 0.28, color: 0x4a5a48, castShadow: true },
+      { id: 'pillar_r4_s',  type: 'box', x:  9.5, y: 0.9, z: -1.5, w: 0.28, h: 1.8, d: 0.28, color: 0x4a5a48, castShadow: true },
     ],
 
     // ── Point lights ─────────────────────────────────────────────────────────
@@ -155,6 +172,11 @@
         id: 'room3', color: 0xffa030, intensity: 1.4, distance: 18,
         x: 15, y: 4.5, z: 16,
         pulse: { base: 1.2, amp: 0.35, freq: 1.1, phase: 1.2 },
+      },
+      {
+        id: 'room4', color: 0x60c070, intensity: 1.3, distance: 18,
+        x: 13, y: 3.0, z: 0,
+        pulse: { base: 1.1, amp: 0.3, freq: 0.9, phase: 2.1 },
       },
     ],
 
