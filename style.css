@@ -359,3 +359,41 @@ canvas {
 #btn-close:hover {
   background: rgba(255, 255, 255, 0.14);
 }
+
+/* ── Level select overlay ────────────────────────────────────────────── */
+#level-select-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.82);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+#level-select-overlay.hidden { display: none; }
+#level-select-box {
+  background: #1a1a2e;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 32px 40px;
+  min-width: 260px;
+  text-align: center;
+  color: #ddd;
+  font-family: monospace;
+}
+#level-select-box h2 {
+  margin: 0 0 20px;
+  font-size: 1.3rem;
+  letter-spacing: 0.08em;
+  color: #aac;
+}
+.level-btn {
+  display: block; width: 100%;
+  margin: 8px 0;
+  padding: 10px 16px;
+  background: #2a2a4a;
+  border: 1px solid #556;
+  border-radius: 4px;
+  color: #ccd;
+  font-family: monospace; font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.level-btn:hover { background: #3a3a6a; color: #fff; }

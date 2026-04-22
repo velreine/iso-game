@@ -10,3 +10,4 @@ services:
       - ./game.js:/usr/share/nginx/html/game.js:ro
       - ./style.css:/usr/share/nginx/html/style.css:ro
       - ./version.txt:/usr/share/nginx/html/version.txt:ro
+      - ./levels:/usr/share/nginx/html/levels:ro

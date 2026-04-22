@@ -1369,3 +1369,13 @@ iso-game/
 └── docs/
     └── dev-log.md      # This file
 ```
+
+## Stage 16 — Multi-Level Architecture (v1.4.0)
+
+Extracted all level-specific data (tiles, lights, decoratives, portals) into `levels/level1.js` using a simple `window.LEVELS` global — no ES module changes needed, so Three.js CDN globals stay intact.
+
+The new level engine in `game.js` exposes three functions: `buildLevel(data)` constructs the full scene from a data object, `tearDownLevel()` cleanly removes all tiles/walls/lights/decoratives by draining the `tileMeshes`, `wallData`, `decorativeMeshes`, and `levelLights` tracking arrays, and `loadLevel(id)` ties them together.
+
+Light pulses (`base + sin(t*freq+phase)*amp`) are now driven by data in each level's `lights[]` array, replacing the three hardcoded animate() lines with a single generic loop.
+
+A level-select overlay is shown on launch. It reads `window.LEVELS` at runtime so future levels auto-appear in the menu as their scripts are added. Portals are stubbed in the data format for Level 1 and will activate transitions in a later stage.

@@ -99,332 +99,233 @@ const fillLight = new THREE.DirectionalLight(0x4060a0, 0.3);
 fillLight.position.set(-10, 8, -10);
 scene.add(fillLight);
 
-// Lava area warm point light — pulsed in the animation loop
-const lavaLight = new THREE.PointLight(0xff5500, 2.0, 10);
-lavaLight.position.set(6, 1.5, 6);
-scene.add(lavaLight);
-
-// ─── Tile Map ─────────────────────────────────────────────────────────────────
+// ─── Tile Map & level-mutable state ──────────────────────────────────────────
 //
-// tileMap[x][z] = {
-//   walkable : boolean  — false blocks all movement onto this tile
-//   type     : string   — 'stone' | 'lava'
-//   mesh     : THREE.Mesh
-// }
+// tileMap[x][z] = { walkable, type, elevation?, portal?, mesh }
 //
-const tileMap = {};
+const tileMap        = {};
+const tileMeshes     = [];   // flat list used by the hover raycaster
+const wallData       = [];   // { mesh, x, z } — rebuilt each level load
+const decorativeMeshes = []; // non-tile scene objects added per level
+const levelLights    = [];   // [{ light: THREE.PointLight, pulse? }]
 
-const STONE_COLORS = [
-  0x52525c, 0x4a4a58, 0x585862, 0x4e4e5a,
-  0x545460, 0x5e5e68, 0x484852, 0x56565e,
-  0x606068, 0x4c4c56,
-];
+const tileGeom = new THREE.BoxGeometry(1 - TILE_GAP, TILE_THICKNESS, 1 - TILE_GAP);
 
-const LAVA_COLORS = [
-  0xff3300, 0xff4400, 0xff5500, 0xff6600,
-  0xff8800, 0xffaa00, 0xdd2200, 0xee4400,
-];
+// Step height — overwritten from level data on each load
+let _STEP_H        = 0.3;
+let MAX_STEP_HEIGHT = 0.32;
 
-// Lava blob — a hand-placed cluster in the positive corner of the grid.
-// All lava tiles have walkable: false.
-const LAVA_COORDS = new Set([
-                  '5,3', '6,3',
-        '4,4',   '5,4', '6,4', '7,4',
-'3,5',  '4,5',   '5,5', '6,5', '7,5',
-        '4,6',   '5,6', '6,6', '7,6',
-                  '5,7', '6,7', '7,7',
-]);
-
-// ─── Multi-room layout ────────────────────────────────────────────────────────
-//   Room 1   — existing 17×17 grid,   x: −8..8,  z: −8..8
-//   Corridor — 3 tiles wide, 5 deep,  x: −1..1,  z:  9..13
-//   Room 2   — 11×11 grid,            x: −5..5,  z: 14..24
-//
-const ROOM2_X_MIN = -5, ROOM2_X_MAX = 5;
-const ROOM2_Z_MIN = 14, ROOM2_Z_MAX = 24;
-const CORR_X_MIN  = -1, CORR_X_MAX  = 1;
-const CORR_Z_MIN  =  9, CORR_Z_MAX  = 13;
-
-const ROOM2_COLORS = [
-  0x374258, 0x2e3a55, 0x3a4260, 0x2c3850,
-  0x404560, 0x363e58, 0x344060, 0x3c4055,
-];
-const DOOR_COLOR = 0x6a6040;   // warm threshold tiles at corridor ends
-
-// ─── Dais (raised platform) in Room 2 ────────────────────────────────────────
-// Layout inside Room 2 (x: −5..5, z: 14..24):
-//   Stairs north  x: −1..1,  z: 15..16  (2 steps ascending into Room 2)
-//   Platform      x: −2..2,  z: 17..21  (elevation 0.9)
-//   Stairs south  x: −1..1,  z: 22..23  (2 steps descending)
-//
-const _STEP_H = 0.3;   // height per stair step (and platform = 3 × _STEP_H)
-
-const DAIS_ELEVATIONS = {};   // "x,z" → world-Y of tile top surface
-// North stairs
-for (let x = -1; x <= 1; x++) {
-  DAIS_ELEVATIONS[`${x},15`] = _STEP_H;
-  DAIS_ELEVATIONS[`${x},16`] = _STEP_H * 2;
-}
-// Platform
-for (let x = -2; x <= 2; x++) {
-  for (let z = 17; z <= 21; z++) {
-    DAIS_ELEVATIONS[`${x},${z}`] = _STEP_H * 3;
-  }
-}
-// South stairs
-for (let x = -1; x <= 1; x++) {
-  DAIS_ELEVATIONS[`${x},22`] = _STEP_H * 2;
-  DAIS_ELEVATIONS[`${x},23`] = _STEP_H;
-}
-
-// Only allow movement between tiles whose top surfaces differ by at most one step
-const MAX_STEP_HEIGHT = _STEP_H + 0.02;
-
-const DAIS_STEP_COLORS = [0x485070, 0x455068, 0x4a5272];
-const DAIS_PLAT_COLORS = [0x3a4868, 0x384562, 0x3c4a6c];
-
-// ─── Room 3 constants ────────────────────────────────────────────────────────
-// Warm sandstone room north-east of Room 2, raised 5 steps (elevation 1.5).
-// Connected by a 5-tile-wide ramp running east from Room 2's east wall (x=5)
-// to Room 3's west wall (x=11).  Each ramp column rises exactly _STEP_H so
-// every step is within MAX_STEP_HEIGHT and the player can walk up naturally.
-const ROOM3_X_MIN  = 11, ROOM3_X_MAX  = 19;
-const ROOM3_Z_MIN  = 12, ROOM3_Z_MAX  = 20;
-const ROOM3_ELEV   = _STEP_H * 5;   // 1.5
-const ROOM3_COLORS = [0x8b7355, 0x7a6245, 0x977d5e, 0x886a48, 0x9a7850, 0x80654a];
-// Ramp: x = 6..10 (five columns), z = 16..18 (three tiles wide)
-const RAMP_X_MIN   = 6,  RAMP_X_MAX  = 10;
-const RAMP_Z_MIN   = 16, RAMP_Z_MAX  = 18;
-const RAMP_COLORS  = [0x8a7258, 0x7e6850, 0x867060];
-
-// Cache BoxGeometry per distinct elevation so we don't recreate identical geometry
+// Cache BoxGeometry per distinct elevation (persists across level loads)
 const _daisGeomCache = {};
 function _getDaisGeom(elev) {
   if (!_daisGeomCache[elev]) {
-    // Height fills from y = −TILE_THICKNESS/2 (below ground) up to y = elev (top surface)
-    _daisGeomCache[elev] = new THREE.BoxGeometry(1 - TILE_GAP, elev + TILE_THICKNESS, 1 - TILE_GAP);
+    _daisGeomCache[elev] = new THREE.BoxGeometry(
+      1 - TILE_GAP, elev + TILE_THICKNESS, 1 - TILE_GAP
+    );
   }
   return _daisGeomCache[elev];
 }
 
-// Wall config — walls are generated on every walkable-tile edge bordering empty space
+// ─── Wall shared geometry & config ───────────────────────────────────────────
 const WALL_HEIGHT    = 0.9;
-const WALL_FADE_NEAR = 2.5;   // distance (world units) where walls begin fading
-const WALL_FADE_FAR  = 4.5;   // distance where walls are fully opaque
-const WALL_MIN_OPC   = 0.12;  // minimum opacity when player is right at a wall
+const WALL_FADE_NEAR = 2.5;
+const WALL_FADE_FAR  = 4.5;
+const WALL_MIN_OPC   = 0.12;
 
-const wallData = [];           // { mesh, x, z } — filled at build time, read each frame
-
-const tileGeom  = new THREE.BoxGeometry(1 - TILE_GAP, TILE_THICKNESS, 1 - TILE_GAP);
-const tileMeshes = [];  // flat list used by the hover raycaster
-
-for (let x = -GRID_HALF; x <= GRID_HALF; x++) {
-  tileMap[x] = {};
-  for (let z = -GRID_HALF; z <= GRID_HALF; z++) {
-    const isLava = LAVA_COORDS.has(`${x},${z}`);
-
-    const color = isLava
-      ? LAVA_COLORS[Math.floor(Math.random() * LAVA_COLORS.length)]
-      : STONE_COLORS[Math.floor(Math.random() * STONE_COLORS.length)];
-
-    const mat = new THREE.MeshLambertMaterial({ color });
-    if (isLava) {
-      // Lava tiles emit a warm glow
-      mat.emissive.setHex(0x441100);
-      mat.emissiveIntensity = 0.6;
-    }
-
-    const tile = new THREE.Mesh(tileGeom, mat);
-    tile.position.set(x, -TILE_THICKNESS / 2, z);
-    tile.receiveShadow = !isLava;
-    scene.add(tile);
-    tileMeshes.push(tile);
-
-    tileMap[x][z] = {
-      walkable : !isLava,   // ← metadata: lava tiles block movement
-      type     : isLava ? 'lava' : 'stone',
-      mesh     : tile,
-    };
-  }
-}
-
-// ─── Corridor tiles ──────────────────────────────────────────────────────────
-for (let x = CORR_X_MIN; x <= CORR_X_MAX; x++) {
-  if (!tileMap[x]) tileMap[x] = {};
-  for (let z = CORR_Z_MIN; z <= CORR_Z_MAX; z++) {
-    const isDoor = (z === CORR_Z_MIN || z === CORR_Z_MAX);
-    const color  = isDoor
-      ? DOOR_COLOR
-      : STONE_COLORS[Math.floor(Math.random() * STONE_COLORS.length)];
-    const mat = new THREE.MeshLambertMaterial({ color });
-    if (isDoor) { mat.emissive.setHex(0x151005); mat.emissiveIntensity = 0.5; }
-    const tile = new THREE.Mesh(tileGeom, mat);
-    tile.position.set(x, -TILE_THICKNESS / 2, z);
-    tile.receiveShadow = true;
-    scene.add(tile);
-    tileMeshes.push(tile);
-    tileMap[x][z] = { walkable: true, type: isDoor ? 'door' : 'stone', mesh: tile };
-  }
-}
-
-// ─── Room 2 tiles ─────────────────────────────────────────────────────────────
-// Dais tiles are skipped here and generated separately with elevation geometry.
-for (let x = ROOM2_X_MIN; x <= ROOM2_X_MAX; x++) {
-  if (!tileMap[x]) tileMap[x] = {};
-  for (let z = ROOM2_Z_MIN; z <= ROOM2_Z_MAX; z++) {
-    if (DAIS_ELEVATIONS[`${x},${z}`] !== undefined) continue;   // handled below
-    const color = ROOM2_COLORS[Math.floor(Math.random() * ROOM2_COLORS.length)];
-    const mat   = new THREE.MeshLambertMaterial({ color });
-    const tile  = new THREE.Mesh(tileGeom, mat);
-    tile.position.set(x, -TILE_THICKNESS / 2, z);
-    tile.receiveShadow = true;
-    scene.add(tile);
-    tileMeshes.push(tile);
-    tileMap[x][z] = { walkable: true, type: 'stone2', mesh: tile };
-  }
-}
-
-// ─── Dais tiles (elevated stair + platform geometry) ─────────────────────────
-for (const [key, elev] of Object.entries(DAIS_ELEVATIONS)) {
-  const [x, z] = key.split(',').map(Number);
-  const isPlatform = elev >= _STEP_H * 3 - 0.01;
-  const palette    = isPlatform ? DAIS_PLAT_COLORS : DAIS_STEP_COLORS;
-  const color      = palette[Math.floor(Math.random() * palette.length)];
-  const mat        = new THREE.MeshLambertMaterial({ color });
-  const geom       = _getDaisGeom(elev);
-  const tile       = new THREE.Mesh(geom, mat);
-  // Center Y: bottom = −TILE_THICKNESS/2, top = elev
-  tile.position.set(x, (elev - TILE_THICKNESS) / 2, z);
-  tile.receiveShadow = true;
-  scene.add(tile);
-  tileMeshes.push(tile);
-  if (!tileMap[x]) tileMap[x] = {};
-  tileMap[x][z] = { walkable: true, type: isPlatform ? 'platform' : 'step',
-                    elevation: elev, mesh: tile };
-}
-
-// ─── Room 3 tiles (elevated sandstone floor) ─────────────────────────────────
-// Use the standard thin tileGeom (not _getDaisGeom) — this is a flat floor at a
-// fixed elevation, not a staircase.  Tall boxes would expose multiple side faces
-// to the isometric ray causing spurious multi-hits; thin slabs keep raycasting clean.
-// The walls (generated later) cover the cliff face from y=0 up to elev+WALL_HEIGHT.
-for (let x = ROOM3_X_MIN; x <= ROOM3_X_MAX; x++) {
-  if (!tileMap[x]) tileMap[x] = {};
-  for (let z = ROOM3_Z_MIN; z <= ROOM3_Z_MAX; z++) {
-    const color = ROOM3_COLORS[Math.floor(Math.random() * ROOM3_COLORS.length)];
-    const mat   = new THREE.MeshLambertMaterial({ color });
-    const tile  = new THREE.Mesh(tileGeom, mat);
-    tile.position.set(x, ROOM3_ELEV - TILE_THICKNESS / 2, z);
-    tile.receiveShadow = true;
-    scene.add(tile);
-    tileMeshes.push(tile);
-    tileMap[x][z] = { walkable: true, type: 'stone3', elevation: ROOM3_ELEV, mesh: tile };
-  }
-}
-
-// ─── Ramp tiles ───────────────────────────────────────────────────────────────
-// Five columns (x = 6..10), each rising one _STEP_H above the last.
-// Column 0 (x=6) starts at 0.3 — one step above Room 2 ground level.
-// Column 4 (x=10) reaches ROOM3_ELEV (1.5) — flush with Room 3's floor.
-for (let col = 0; col < (RAMP_X_MAX - RAMP_X_MIN + 1); col++) {
-  const x    = RAMP_X_MIN + col;
-  const elev = _STEP_H * (col + 1);
-  if (!tileMap[x]) tileMap[x] = {};
-  for (let z = RAMP_Z_MIN; z <= RAMP_Z_MAX; z++) {
-    const color = RAMP_COLORS[Math.floor(Math.random() * RAMP_COLORS.length)];
-    const mat   = new THREE.MeshLambertMaterial({ color });
-    const geom  = _getDaisGeom(elev);
-    const tile  = new THREE.Mesh(geom, mat);
-    tile.position.set(x, (elev - TILE_THICKNESS) / 2, z);
-    tile.receiveShadow = true;
-    scene.add(tile);
-    tileMeshes.push(tile);
-    tileMap[x][z] = { walkable: true, type: 'ramp', elevation: elev, mesh: tile };
-  }
-}
-
-// ─── Altar ────────────────────────────────────────────────────────────────────
-// A dark stone slab resting at the centre of the dais platform.
-const altarMesh = new THREE.Mesh(
-  new THREE.BoxGeometry(1.8, 0.45, 0.85),
-  new THREE.MeshLambertMaterial({ color: 0x2a2a2a, emissive: 0x111111, emissiveIntensity: 0.3 })
-);
-altarMesh.position.set(0, _STEP_H * 3 + 0.225, 19);
-altarMesh.castShadow = true;
-scene.add(altarMesh);
-
-// The altar occupies tile (0,19) — mark it unwalkable so hover and pathfinding
-// don't treat the space under the slab as navigable.
-if (tileMap[0]?.[19]) tileMap[0][19].walkable = false;
-
-// Soft blue-purple ambient light hovering above the altar — pulsed in animate()
-const daisLight = new THREE.PointLight(0x7070ff, 1.5, 10);
-daisLight.position.set(0, _STEP_H * 3 + 2.2, 19);
-scene.add(daisLight);
-
-// Warm golden light hovering in Room 3 — pulsed in animate()
-const room3Light = new THREE.PointLight(0xffa030, 1.4, 18);
-room3Light.position.set(15, ROOM3_ELEV + 3.0, 16);
-scene.add(room3Light);
-
-// ─── Walls ────────────────────────────────────────────────────────────────────
-// For every walkable tile, check each of the 4 cardinal neighbours. If there is
-// no tile there at all (undefined in tileMap) place a wall segment on that edge.
-// Tiles adjacent to lava (which has its own visible floor mesh) are skipped
-// naturally because lava cells ARE defined in tileMap.
-//
 const wallGeomNS = new THREE.BoxGeometry(1 - TILE_GAP, WALL_HEIGHT, 0.1);
 const wallGeomEW = new THREE.BoxGeometry(0.1, WALL_HEIGHT, 1 - TILE_GAP);
 const _WALL_DIRS = [
-  { dx:  0, dz: -1, geom: wallGeomNS, ox:  0,    oz: -0.5 },  // North
-  { dx:  0, dz:  1, geom: wallGeomNS, ox:  0,    oz:  0.5 },  // South
-  { dx: -1, dz:  0, geom: wallGeomEW, ox: -0.5,  oz:  0   },  // West
-  { dx:  1, dz:  0, geom: wallGeomEW, ox:  0.5,  oz:  0   },  // East
+  { dx:  0, dz: -1, geom: wallGeomNS, ox:  0,   oz: -0.5 },  // North
+  { dx:  0, dz:  1, geom: wallGeomNS, ox:  0,   oz:  0.5 },  // South
+  { dx: -1, dz:  0, geom: wallGeomEW, ox: -0.5, oz:  0   },  // West
+  { dx:  1, dz:  0, geom: wallGeomEW, ox:  0.5, oz:  0   },  // East
 ];
 
-for (const xStr of Object.keys(tileMap)) {
-  const x = Number(xStr);
-  for (const zStr of Object.keys(tileMap[x])) {
-    const z = Number(zStr);
-    if (!tileMap[x][z].walkable) continue;
-    const tileElev = tileMap[x][z].elevation || 0;
-    for (const dir of _WALL_DIRS) {
-      const nx = x + dir.dx, nz = z + dir.dz;
-      if (tileMap[nx]?.[nz] !== undefined) continue;   // neighbour tile exists — no wall
-      // Wall height grows with tile elevation so it always starts at y=0
-      const wallH   = tileElev + WALL_HEIGHT;
-      const wallMat = new THREE.MeshLambertMaterial({
-        color: 0x58606e, transparent: true, opacity: 1.0,
-      });
-      // Reuse shared geometry for ground-level tiles; create per-tile for elevated ones
-      const geom = tileElev === 0 ? dir.geom : new THREE.BoxGeometry(
-        dir.dx === 0 ? 1 - TILE_GAP : 0.1,
-        wallH,
-        dir.dx === 0 ? 0.1 : 1 - TILE_GAP
-      );
-      const wall = new THREE.Mesh(geom, wallMat);
-      wall.position.set(x + dir.ox, wallH / 2, z + dir.oz);
-      wall.castShadow = true;
-      scene.add(wall);
-      wallData.push({ mesh: wall, x: x + dir.ox, z: z + dir.oz });
+// ─── Level engine ─────────────────────────────────────────────────────────────
+
+function _lvlBuildStoneRoom(room, elevatedSet) {
+  const lavaSet = room.lavaCoords
+    ? new Set(room.lavaCoords.map(([x, z]) => `${x},${z}`))
+    : new Set();
+  for (let x = room.xMin; x <= room.xMax; x++) {
+    if (!tileMap[x]) tileMap[x] = {};
+    for (let z = room.zMin; z <= room.zMax; z++) {
+      if (elevatedSet.has(`${x},${z}`)) continue;  // elevated override below
+      const isLava = lavaSet.has(`${x},${z}`);
+      const palette = isLava ? room.lavaPalette : room.palette;
+      const color   = palette[Math.floor(Math.random() * palette.length)];
+      const mat = new THREE.MeshLambertMaterial({ color });
+      if (isLava) { mat.emissive.setHex(0x441100); mat.emissiveIntensity = 0.6; }
+      const elev = room.elevation || 0;
+      const tile = new THREE.Mesh(tileGeom, mat);
+      tile.position.set(x, elev > 0 ? elev - TILE_THICKNESS / 2 : -TILE_THICKNESS / 2, z);
+      tile.receiveShadow = !isLava;
+      scene.add(tile);
+      tileMeshes.push(tile);
+      const td = { walkable: !isLava, type: isLava ? 'lava' : room.tileType, mesh: tile };
+      if (elev > 0) td.elevation = elev;
+      tileMap[x][z] = td;
     }
   }
 }
 
-// ─── Door pillars ─────────────────────────────────────────────────────────────
-// Decorative stone columns flank each end of the corridor, marking the
-// transitions between rooms. Two pillars per opening = four total.
-const pillarGeom = new THREE.BoxGeometry(0.28, 1.8, 0.28);
-const pillarMat  = new THREE.MeshLambertMaterial({ color: 0x706858 });
-[
-  [-1.5,  8.5], [1.5,  8.5],   // Room 1 → Corridor
-  [-1.5, 13.5], [1.5, 13.5],   // Corridor → Room 2
-].forEach(([px, pz]) => {
-  const pillar = new THREE.Mesh(pillarGeom, pillarMat);
-  pillar.position.set(px, 0.9, pz);
-  pillar.castShadow = true;
-  scene.add(pillar);
-});
+function _lvlBuildCorridorRoom(room) {
+  const doorSet = new Set(room.doorZ || []);
+  for (let x = room.xMin; x <= room.xMax; x++) {
+    if (!tileMap[x]) tileMap[x] = {};
+    for (let z = room.zMin; z <= room.zMax; z++) {
+      const isDoor = doorSet.has(z);
+      const color  = isDoor
+        ? room.doorColor
+        : room.palette[Math.floor(Math.random() * room.palette.length)];
+      const mat = new THREE.MeshLambertMaterial({ color });
+      if (isDoor) { mat.emissive.setHex(0x151005); mat.emissiveIntensity = 0.5; }
+      const tile = new THREE.Mesh(tileGeom, mat);
+      tile.position.set(x, -TILE_THICKNESS / 2, z);
+      tile.receiveShadow = true;
+      scene.add(tile);
+      tileMeshes.push(tile);
+      tileMap[x][z] = { walkable: true, type: isDoor ? 'door' : room.tileType, mesh: tile };
+    }
+  }
+}
+
+function _lvlBuildRampRoom(room) {
+  const cols = room.xMax - room.xMin + 1;
+  for (let col = 0; col < cols; col++) {
+    const x    = room.xMin + col;
+    const elev = room.elevationStart + _STEP_H * col;
+    if (!tileMap[x]) tileMap[x] = {};
+    for (let z = room.zMin; z <= room.zMax; z++) {
+      const color = room.palette[Math.floor(Math.random() * room.palette.length)];
+      const mat   = new THREE.MeshLambertMaterial({ color });
+      const tile  = new THREE.Mesh(_getDaisGeom(elev), mat);
+      tile.position.set(x, (elev - TILE_THICKNESS) / 2, z);
+      tile.receiveShadow = true;
+      scene.add(tile);
+      tileMeshes.push(tile);
+      tileMap[x][z] = { walkable: true, type: room.tileType, elevation: elev, mesh: tile };
+    }
+  }
+}
+
+function _lvlBuildElevatedTile(t, data) {
+  const isPlatform = t.type === 'platform';
+  const palette    = isPlatform ? data.daisPlatformPalette : data.daisStepPalette;
+  const color      = palette[Math.floor(Math.random() * palette.length)];
+  const mat  = new THREE.MeshLambertMaterial({ color });
+  const tile = new THREE.Mesh(_getDaisGeom(t.elevation), mat);
+  tile.position.set(t.x, (t.elevation - TILE_THICKNESS) / 2, t.z);
+  tile.receiveShadow = true;
+  scene.add(tile);
+  tileMeshes.push(tile);
+  if (!tileMap[t.x]) tileMap[t.x] = {};
+  tileMap[t.x][t.z] = {
+    walkable: true, type: t.type, elevation: t.elevation, mesh: tile,
+  };
+}
+
+function _lvlGenerateWalls() {
+  for (const xStr of Object.keys(tileMap)) {
+    const x = Number(xStr);
+    for (const zStr of Object.keys(tileMap[x])) {
+      const z = Number(zStr);
+      if (!tileMap[x][z].walkable) continue;
+      const tileElev = tileMap[x][z].elevation || 0;
+      for (const dir of _WALL_DIRS) {
+        const nx = x + dir.dx, nz = z + dir.dz;
+        if (tileMap[nx]?.[nz] !== undefined) continue;
+        const wallH   = tileElev + WALL_HEIGHT;
+        const wallMat = new THREE.MeshLambertMaterial({
+          color: 0x58606e, transparent: true, opacity: 1.0,
+        });
+        const geom = tileElev === 0 ? dir.geom : new THREE.BoxGeometry(
+          dir.dx === 0 ? 1 - TILE_GAP : 0.1,
+          wallH,
+          dir.dx === 0 ? 0.1 : 1 - TILE_GAP
+        );
+        const wall = new THREE.Mesh(geom, wallMat);
+        wall.position.set(x + dir.ox, wallH / 2, z + dir.oz);
+        wall.castShadow = true;
+        scene.add(wall);
+        wallData.push({ mesh: wall, x: x + dir.ox, z: z + dir.oz });
+      }
+    }
+  }
+}
+
+function _lvlBuildDecorativeMesh(def) {
+  const mat = new THREE.MeshLambertMaterial({ color: def.color });
+  if (def.emissive !== undefined) {
+    mat.emissive.setHex(def.emissive);
+    mat.emissiveIntensity = def.emissiveIntensity || 0;
+  }
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(def.w, def.h, def.d), mat);
+  mesh.position.set(def.x, def.y, def.z);
+  if (def.castShadow) mesh.castShadow = true;
+  scene.add(mesh);
+  decorativeMeshes.push(mesh);
+  for (const tile of (def.blocksNav || [])) {
+    if (tileMap[tile.x]?.[tile.z]) tileMap[tile.x][tile.z].walkable = false;
+  }
+}
+
+function _lvlBuildLight(def) {
+  const light = new THREE.PointLight(def.color, def.intensity, def.distance);
+  light.position.set(def.x, def.y, def.z);
+  scene.add(light);
+  levelLights.push({ light, pulse: def.pulse || null });
+}
+
+function tearDownLevel() {
+  cancelPathfind();
+  hoveredTile           = null;
+  hoverHighlight.visible = false;
+  // path viz cleared via cancelPathfind → _clearAllViz
+  for (const m of tileMeshes)         scene.remove(m);   tileMeshes.length = 0;
+  for (const wd of wallData)          scene.remove(wd.mesh); wallData.length = 0;
+  for (const m of decorativeMeshes)   scene.remove(m);   decorativeMeshes.length = 0;
+  for (const { light } of levelLights) scene.remove(light); levelLights.length = 0;
+  for (const x of Object.keys(tileMap)) delete tileMap[x];
+}
+
+function buildLevel(data) {
+  _STEP_H         = data.stepHeight || 0.3;
+  MAX_STEP_HEIGHT  = _STEP_H + 0.02;
+
+  const elevatedSet = new Set((data.elevatedTiles || []).map(t => `${t.x},${t.z}`));
+
+  for (const room of (data.rooms || [])) {
+    if      (room.type === 'corridor') _lvlBuildCorridorRoom(room);
+    else if (room.type === 'ramp')     _lvlBuildRampRoom(room);
+    else                               _lvlBuildStoneRoom(room, elevatedSet);
+  }
+  for (const t   of (data.elevatedTiles || [])) _lvlBuildElevatedTile(t, data);
+  _lvlGenerateWalls();
+  for (const def of (data.decoratives  || [])) _lvlBuildDecorativeMesh(def);
+  for (const def of (data.lights       || [])) _lvlBuildLight(def);
+
+  // Portal tiles — store metadata so tryMove can trigger transitions
+  for (const p of (data.portals || [])) {
+    if (tileMap[p.x]?.[p.z]) {
+      tileMap[p.x][p.z].portal = { targetLevel: p.targetLevel, targetSpawn: p.targetSpawn };
+    }
+  }
+
+  // Position player at spawn
+  grid.x = data.playerStart?.x ?? 0;
+  grid.z = data.playerStart?.z ?? 0;
+  playerBaseY = tileMap[grid.x]?.[grid.z]?.elevation || 0;
+  playerMesh.position.set(grid.x, PLAYER_SIZE / 2 + playerBaseY, grid.z);
+  playerMesh.rotation.y = 0;
+}
+
+function loadLevel(id) {
+  const data = window.LEVELS?.[id];
+  if (!data) { console.error('[level] not found:', id); return; }
+  if (Object.keys(tileMap).length) tearDownLevel();
+  buildLevel(data);
+}
 
 // ─── Player ───────────────────────────────────────────────────────────────────
 const playerMesh = new THREE.Mesh(
@@ -1160,14 +1061,10 @@ function animate() {
   shadowBlob.position.z = playerMesh.position.z;
   shadowBlob.position.y = playerBaseY + 0.002;
 
-  // ── Lava glow pulse ───────────────────────────────────────────────────────
-  lavaLight.intensity = 1.8 + Math.sin(t * 2.8) * 0.6;
-
-  // ── Dais light pulse ──────────────────────────────────────────────────────
-  daisLight.intensity = 1.2 + Math.sin(t * 1.5) * 0.4;
-
-  // ── Room 3 light pulse ────────────────────────────────────────────────────
-  room3Light.intensity = 1.2 + Math.sin(t * 1.1 + 1.2) * 0.35;
+  // ── Level light pulses ────────────────────────────────────────────────────
+  for (const { light, pulse } of levelLights) {
+    if (pulse) light.intensity = pulse.base + Math.sin(t * pulse.freq + (pulse.phase || 0)) * pulse.amp;
+  }
 
   // ── Wall transparency — fade walls near the player so they never occlude ──
   {
@@ -1460,3 +1357,21 @@ document.getElementById('btn-save').addEventListener('click', () => {
 document.getElementById('btn-close').addEventListener('click', closeSettings);
 
 animate();
+
+// ── Level select menu ─────────────────────────────────────────────────────
+(function initLevelSelect() {
+  const overlay = document.getElementById('level-select-overlay');
+  const listEl  = document.getElementById('level-select-list');
+  if (!overlay || !listEl) return;
+  const levels = window.LEVELS || {};
+  Object.keys(levels).forEach(id => {
+    const btn = document.createElement('button');
+    btn.className = 'level-btn';
+    btn.textContent = levels[id].name || id;
+    btn.addEventListener('click', () => {
+      overlay.classList.add('hidden');
+      loadLevel(id);
+    });
+    listEl.appendChild(btn);
+  });
+})();

@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.0] - 2026-04-22
+### Added
+- Multi-level architecture: level data extracted to `levels/level1.js` using `window.LEVELS` global pattern
+- Level engine in `game.js`: `buildLevel(data)`, `loadLevel(id)`, `tearDownLevel()` with full scene cleanup
+- Level select menu shown on launch; player picks a level before the game starts
+- Portal metadata support in level data (empty for level 1, ready for future use)
+- Dynamic light pulse system driven by level data; removes hardcoded per-light animate() code
+
+---
+
 ## [1.3.5] - 2026-04-22
 
 ### Changed
