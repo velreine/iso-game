@@ -504,8 +504,8 @@ scene.add(axesHelper);
 const hoverHighlight = new THREE.Mesh(
   new THREE.PlaneGeometry(0.92, 0.92),
   new THREE.MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.25,
-    depthWrite: false, side: THREE.DoubleSide,
+    color: 0xff00dd, transparent: true, opacity: 0.45,
+    depthWrite: false, side: THREE.DoubleSide, fog: false,
   })
 );
 hoverHighlight.rotation.x = -Math.PI / 2;
@@ -560,8 +560,8 @@ function _makeLayer(color, maxN, order) {
   const m = new THREE.InstancedMesh(
     new THREE.PlaneGeometry(0.88, 0.88),
     new THREE.MeshBasicMaterial({
-      color, transparent: true, opacity: 0.5,
-      depthWrite: false, depthTest: false,
+      color, transparent: true, opacity: 0.65,
+      depthWrite: false, depthTest: false, fog: false,
     }),
     maxN
   );
@@ -572,9 +572,9 @@ function _makeLayer(color, maxN, order) {
   return m;
 }
 
-const exploredLayer = _makeLayer(0x2255ff, MAX_TILES, 1);   // blue — A* explored
-const pathLayer     = _makeLayer(0xff2222, MAX_TILES, 2);   // red  — planned path
-const destLayer     = _makeLayer(0x22ff55, 1,         4);   // green — destination
+const exploredLayer = _makeLayer(0x00aaff, MAX_TILES, 1);   // bright blue  — A* explored
+const pathLayer     = _makeLayer(0xff2255, MAX_TILES, 2);   // bright pink-red — planned path
+const destLayer     = _makeLayer(0x00ff44, 1,         4);   // bright green — destination
 
 const raycaster   = new THREE.Raycaster();
 const mouse       = new THREE.Vector2(Infinity, Infinity);
@@ -1226,7 +1226,7 @@ function animate() {
       hoverHighlight.position.x = tx;
       hoverHighlight.position.y = (td?.elevation || 0) + 0.005;
       hoverHighlight.position.z = tz;
-      hoverHighlight.material.color.setHex(td?.type === 'lava' ? 0xff8844 : 0xff69b4);
+      hoverHighlight.material.color.setHex(td?.type === 'lava' ? 0xff6600 : 0xff00dd);
       hoverHighlight.material.opacity = 0.18 + Math.sin(t * 5) * 0.07;
       hoverHighlight.visible = true;
 

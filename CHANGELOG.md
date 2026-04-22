@@ -6,6 +6,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.5] - 2026-04-22
+
+### Changed
+- **Debug overlay materials** — all debug/pathfinding overlays now have `fog: false`
+  so they are never washed out by scene fog regardless of distance; opacity bumped
+  from 0.25 → 0.45 (hover) and 0.5 → 0.65 (path layers) for stronger contrast
+- **Overlay colours** updated to pure saturated values that read clearly on any
+  tile palette:
+  - Hover highlight: `#ff00dd` vivid magenta-pink (lava override: `#ff6600`)
+  - A\* explored layer: `#00aaff` bright sky-blue (was `#2255ff`)
+  - Planned path layer: `#ff2255` bright pink-red (was `#ff2222`)
+  - Destination layer: `#00ff44` pure bright green (was `#22ff55`)
+
+---
+
 ## [1.3.4] - 2026-04-22
 
 ### Fixed
