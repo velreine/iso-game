@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.2] - 2026-04-22
+
+### Fixed
+- **Hover highlight elevation** — the pulsing highlight plane now tracks the
+  hovered tile's `elevation` (`position.y = elevation + 0.005`); previously
+  its Y was fixed at `0.005` so it appeared on the floor beneath raised tiles
+  (dais platform, Room 3, ramp) instead of on their top surface
+
+---
+
 ## [1.3.1] - 2026-04-22
 
 ### Fixed

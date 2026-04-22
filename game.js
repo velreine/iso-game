@@ -1218,8 +1218,9 @@ function animate() {
       const td = tileMap[tx]?.[tz];
       hoveredTile = td ? { x: tx, z: tz, type: td.type, walkable: td.walkable } : null;
 
-      // Reposition highlight and pulse opacity
+      // Reposition highlight and pulse opacity — lift Y to sit on the tile surface
       hoverHighlight.position.x = tx;
+      hoverHighlight.position.y = (td?.elevation || 0) + 0.005;
       hoverHighlight.position.z = tz;
       hoverHighlight.material.color.setHex(td?.type === 'lava' ? 0xff8844 : 0xffffff);
       hoverHighlight.material.opacity = 0.18 + Math.sin(t * 5) * 0.07;
