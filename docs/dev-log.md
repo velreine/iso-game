@@ -20,6 +20,7 @@ A step-by-step record of every feature added to the game, with the most importan
 12. [Stage 12 — Multi-Room Map, Walls & Wall Transparency](#stage-12)
 13. [Stage 13 — Tile Elevation, Dais & Staircase](#stage-13)
 14. [Stage 14 — Scroll Zoom, Debug Raycast & Zoom HUD](#stage-14)
+15. [Stage 15 — Room 3 & Ramp Connection](#stage-15)
 
 ---
 
@@ -1296,6 +1297,58 @@ function setZoom(newSize) {
 ```
 
 A `#zoom-info` label in the bottom-right corner shows the live zoom value (e.g. `zoom 10.0`). Pressing **X** now also calls `setZoom(DEFAULTS.viewSize)` so a full camera reset — angle, pan mode, and zoom — happens with one key.
+
+---
+
+<a name="stage-15"></a>
+## Stage 15 — Room 3 & Ramp Connection
+
+**Goal:** Add a third room to the north-east of Room 2, connected by a walkable ramp rather than a flat corridor. The ramp needed to respect the existing `MAX_STEP_HEIGHT` constraint, and wall generation needed extending to handle elevated floor tiles properly.
+
+### Map Layout
+
+Room 3 sits at x: 11..19, z: 12..20 at elevation 1.5 (five `_STEP_H` steps above ground). It connects to Room 2's east wall (x=5) via a five-column ramp at x: 6..10, z: 16..18. The opening in Room 2's east wall appears automatically because the ramp tiles are in `tileMap` before the wall loop runs — the same algorithmic approach used for the corridor.
+
+### Ramp Geometry
+
+Each ramp column rises exactly `_STEP_H` (0.3), so the step from Room 2 ground (elev 0) to the first ramp tile (elev 0.3) and every subsequent column transition is within `MAX_STEP_HEIGHT = 0.32`. The geometry reuses `_getDaisGeom`, which fills from below ground up to the exact elevation — no gap between ramp tile sides:
+
+```js
+for (let col = 0; col < (RAMP_X_MAX - RAMP_X_MIN + 1); col++) {
+  const elev = _STEP_H * (col + 1);   // 0.3 → 0.6 → 0.9 → 1.2 → 1.5
+  for (let z = RAMP_Z_MIN; z <= RAMP_Z_MAX; z++) {
+    tileMap[x][z] = { walkable: true, type: 'ramp', elevation: elev, mesh: tile };
+  }
+}
+```
+
+The final ramp column (x=10) sits at elevation 1.5 — flush with Room 3's floor — so the transition is seamless.
+
+### Elevation-Aware Wall Generation
+
+The original wall code placed all walls at `y = WALL_HEIGHT / 2` regardless of tile elevation. This worked for the dais (no walls on dais edges) but would have placed Room 3's boundary walls floating at ground level. The fix: walls now extend from y=0 up to `elevation + WALL_HEIGHT`, with the center shifted accordingly:
+
+```js
+const tileElev = tileMap[x][z].elevation || 0;
+const wallH    = tileElev + WALL_HEIGHT;
+// Reuse shared geometry for ground-level tiles; new geometry for elevated ones
+const geom = tileElev === 0 ? dir.geom : new THREE.BoxGeometry(
+  dir.dx === 0 ? 1 - TILE_GAP : 0.1,
+  wallH,
+  dir.dx === 0 ? 0.1 : 1 - TILE_GAP
+);
+wall.position.set(x + dir.ox, wallH / 2, z + dir.oz);
+```
+
+Room 3 boundary walls are 2.4 units tall (1.5 + 0.9). The ramp side-walls step progressively from 1.2 to 2.4 units, forming natural retaining walls that rise with the ramp.
+
+### Room 3 Lighting
+
+A warm golden `PointLight` (0xffa030, range 18) pulses at 1.1 Hz with a phase offset from the dais light, giving each area a distinct atmospheric rhythm:
+
+```js
+room3Light.intensity = 1.2 + Math.sin(t * 1.1 + 1.2) * 0.35;
+```
 
 ---
 

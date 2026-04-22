@@ -183,6 +183,20 @@ const MAX_STEP_HEIGHT = _STEP_H + 0.02;
 const DAIS_STEP_COLORS = [0x485070, 0x455068, 0x4a5272];
 const DAIS_PLAT_COLORS = [0x3a4868, 0x384562, 0x3c4a6c];
 
+// ─── Room 3 constants ────────────────────────────────────────────────────────
+// Warm sandstone room north-east of Room 2, raised 5 steps (elevation 1.5).
+// Connected by a 5-tile-wide ramp running east from Room 2's east wall (x=5)
+// to Room 3's west wall (x=11).  Each ramp column rises exactly _STEP_H so
+// every step is within MAX_STEP_HEIGHT and the player can walk up naturally.
+const ROOM3_X_MIN  = 11, ROOM3_X_MAX  = 19;
+const ROOM3_Z_MIN  = 12, ROOM3_Z_MAX  = 20;
+const ROOM3_ELEV   = _STEP_H * 5;   // 1.5
+const ROOM3_COLORS = [0x8b7355, 0x7a6245, 0x977d5e, 0x886a48, 0x9a7850, 0x80654a];
+// Ramp: x = 6..10 (five columns), z = 16..18 (three tiles wide)
+const RAMP_X_MIN   = 6,  RAMP_X_MAX  = 10;
+const RAMP_Z_MIN   = 16, RAMP_Z_MAX  = 18;
+const RAMP_COLORS  = [0x8a7258, 0x7e6850, 0x867060];
+
 // Cache BoxGeometry per distinct elevation so we don't recreate identical geometry
 const _daisGeomCache = {};
 function _getDaisGeom(elev) {
@@ -289,6 +303,43 @@ for (const [key, elev] of Object.entries(DAIS_ELEVATIONS)) {
                     elevation: elev, mesh: tile };
 }
 
+// ─── Room 3 tiles (elevated sandstone floor) ─────────────────────────────────
+for (let x = ROOM3_X_MIN; x <= ROOM3_X_MAX; x++) {
+  if (!tileMap[x]) tileMap[x] = {};
+  for (let z = ROOM3_Z_MIN; z <= ROOM3_Z_MAX; z++) {
+    const color = ROOM3_COLORS[Math.floor(Math.random() * ROOM3_COLORS.length)];
+    const mat   = new THREE.MeshLambertMaterial({ color });
+    const geom  = _getDaisGeom(ROOM3_ELEV);
+    const tile  = new THREE.Mesh(geom, mat);
+    tile.position.set(x, (ROOM3_ELEV - TILE_THICKNESS) / 2, z);
+    tile.receiveShadow = true;
+    scene.add(tile);
+    tileMeshes.push(tile);
+    tileMap[x][z] = { walkable: true, type: 'stone3', elevation: ROOM3_ELEV, mesh: tile };
+  }
+}
+
+// ─── Ramp tiles ───────────────────────────────────────────────────────────────
+// Five columns (x = 6..10), each rising one _STEP_H above the last.
+// Column 0 (x=6) starts at 0.3 — one step above Room 2 ground level.
+// Column 4 (x=10) reaches ROOM3_ELEV (1.5) — flush with Room 3's floor.
+for (let col = 0; col < (RAMP_X_MAX - RAMP_X_MIN + 1); col++) {
+  const x    = RAMP_X_MIN + col;
+  const elev = _STEP_H * (col + 1);
+  if (!tileMap[x]) tileMap[x] = {};
+  for (let z = RAMP_Z_MIN; z <= RAMP_Z_MAX; z++) {
+    const color = RAMP_COLORS[Math.floor(Math.random() * RAMP_COLORS.length)];
+    const mat   = new THREE.MeshLambertMaterial({ color });
+    const geom  = _getDaisGeom(elev);
+    const tile  = new THREE.Mesh(geom, mat);
+    tile.position.set(x, (elev - TILE_THICKNESS) / 2, z);
+    tile.receiveShadow = true;
+    scene.add(tile);
+    tileMeshes.push(tile);
+    tileMap[x][z] = { walkable: true, type: 'ramp', elevation: elev, mesh: tile };
+  }
+}
+
 // ─── Altar ────────────────────────────────────────────────────────────────────
 // A dark stone slab resting at the centre of the dais platform.
 const altarMesh = new THREE.Mesh(
@@ -307,6 +358,11 @@ if (tileMap[0]?.[19]) tileMap[0][19].walkable = false;
 const daisLight = new THREE.PointLight(0x7070ff, 1.5, 10);
 daisLight.position.set(0, _STEP_H * 3 + 2.2, 19);
 scene.add(daisLight);
+
+// Warm golden light hovering in Room 3 — pulsed in animate()
+const room3Light = new THREE.PointLight(0xffa030, 1.4, 18);
+room3Light.position.set(15, ROOM3_ELEV + 3.0, 16);
+scene.add(room3Light);
 
 // ─── Walls ────────────────────────────────────────────────────────────────────
 // For every walkable tile, check each of the 4 cardinal neighbours. If there is
@@ -328,14 +384,23 @@ for (const xStr of Object.keys(tileMap)) {
   for (const zStr of Object.keys(tileMap[x])) {
     const z = Number(zStr);
     if (!tileMap[x][z].walkable) continue;
+    const tileElev = tileMap[x][z].elevation || 0;
     for (const dir of _WALL_DIRS) {
       const nx = x + dir.dx, nz = z + dir.dz;
       if (tileMap[nx]?.[nz] !== undefined) continue;   // neighbour tile exists — no wall
+      // Wall height grows with tile elevation so it always starts at y=0
+      const wallH   = tileElev + WALL_HEIGHT;
       const wallMat = new THREE.MeshLambertMaterial({
         color: 0x58606e, transparent: true, opacity: 1.0,
       });
-      const wall = new THREE.Mesh(dir.geom, wallMat);
-      wall.position.set(x + dir.ox, WALL_HEIGHT / 2, z + dir.oz);
+      // Reuse shared geometry for ground-level tiles; create per-tile for elevated ones
+      const geom = tileElev === 0 ? dir.geom : new THREE.BoxGeometry(
+        dir.dx === 0 ? 1 - TILE_GAP : 0.1,
+        wallH,
+        dir.dx === 0 ? 0.1 : 1 - TILE_GAP
+      );
+      const wall = new THREE.Mesh(geom, wallMat);
+      wall.position.set(x + dir.ox, wallH / 2, z + dir.oz);
       wall.castShadow = true;
       scene.add(wall);
       wallData.push({ mesh: wall, x: x + dir.ox, z: z + dir.oz });
@@ -485,7 +550,7 @@ function _setTileInstance(mesh, idx, x, z) {
   mesh.setMatrixAt(idx, _pfDummy.matrix);
 }
 
-const MAX_TILES = 500;   // covers Room 1 (289) + corridor (15) + Room 2 (121)
+const MAX_TILES = 700;   // covers Room 1 (289) + corridor (15) + Room 2 (121) + Room 3 (81) + ramp (15)
 
 function _makeLayer(color, maxN, order) {
   const m = new THREE.InstancedMesh(
@@ -1096,6 +1161,9 @@ function animate() {
 
   // ── Dais light pulse ──────────────────────────────────────────────────────
   daisLight.intensity = 1.2 + Math.sin(t * 1.5) * 0.4;
+
+  // ── Room 3 light pulse ────────────────────────────────────────────────────
+  room3Light.intensity = 1.2 + Math.sin(t * 1.1 + 1.2) * 0.35;
 
   // ── Wall transparency — fade walls near the player so they never occlude ──
   {

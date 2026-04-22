@@ -6,6 +6,27 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.0] - 2026-04-22
+
+### Added
+- **Room 3** — a 9×9 warm-sandstone room (x: 11..19, z: 12..20) raised to
+  elevation 1.5 (five steps above ground); uses a distinct amber/ochre palette
+  to contrast with Room 1's cool grey and Room 2's blue-grey stone
+- **Ramp connection** — instead of a corridor, Room 2's east wall (x=5) opens
+  onto a 5-column × 3-tile ramp (x: 6..10, z: 16..18); each column rises
+  exactly one `_STEP_H` (0.3), so all transitions are within `MAX_STEP_HEIGHT`
+  and both keyboard movement and A\* pathfinding traverse the ramp naturally
+- **Elevation-aware walls** — wall generation now reads each tile's `elevation`
+  and builds walls that start at y=0 and extend to `elevation + WALL_HEIGHT`;
+  Room 3's boundary walls are 2.4 units tall, ramp side-walls step up
+  progressively like retaining walls as the ramp ascends
+- **Room 3 ambient light** — a warm golden `PointLight` (0xffa030, range 18)
+  floats above the room and pulses gently at 1.1 Hz, giving the sandstone
+  floor a torch-like atmosphere distinct from Room 2's blue-purple dais light
+- `MAX_TILES` raised from 500 → 700 to cover the expanded map
+
+---
+
 ## [1.2.4] - 2026-04-21
 
 ### Changed
