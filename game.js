@@ -304,14 +304,17 @@ for (const [key, elev] of Object.entries(DAIS_ELEVATIONS)) {
 }
 
 // ─── Room 3 tiles (elevated sandstone floor) ─────────────────────────────────
+// Use the standard thin tileGeom (not _getDaisGeom) — this is a flat floor at a
+// fixed elevation, not a staircase.  Tall boxes would expose multiple side faces
+// to the isometric ray causing spurious multi-hits; thin slabs keep raycasting clean.
+// The walls (generated later) cover the cliff face from y=0 up to elev+WALL_HEIGHT.
 for (let x = ROOM3_X_MIN; x <= ROOM3_X_MAX; x++) {
   if (!tileMap[x]) tileMap[x] = {};
   for (let z = ROOM3_Z_MIN; z <= ROOM3_Z_MAX; z++) {
     const color = ROOM3_COLORS[Math.floor(Math.random() * ROOM3_COLORS.length)];
     const mat   = new THREE.MeshLambertMaterial({ color });
-    const geom  = _getDaisGeom(ROOM3_ELEV);
-    const tile  = new THREE.Mesh(geom, mat);
-    tile.position.set(x, (ROOM3_ELEV - TILE_THICKNESS) / 2, z);
+    const tile  = new THREE.Mesh(tileGeom, mat);
+    tile.position.set(x, ROOM3_ELEV - TILE_THICKNESS / 2, z);
     tile.receiveShadow = true;
     scene.add(tile);
     tileMeshes.push(tile);
@@ -1222,7 +1225,7 @@ function animate() {
       hoverHighlight.position.x = tx;
       hoverHighlight.position.y = (td?.elevation || 0) + 0.005;
       hoverHighlight.position.z = tz;
-      hoverHighlight.material.color.setHex(td?.type === 'lava' ? 0xff8844 : 0xffffff);
+      hoverHighlight.material.color.setHex(td?.type === 'lava' ? 0xff8844 : 0xff69b4);
       hoverHighlight.material.opacity = 0.18 + Math.sin(t * 5) * 0.07;
       hoverHighlight.visible = true;
 

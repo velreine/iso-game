@@ -6,6 +6,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.3] - 2026-04-22
+
+### Fixed
+- **Room 3 tile geometry** — switched from `_getDaisGeom` (full-height box from
+  ground to elevation) to the standard thin `tileGeom` slab positioned at
+  `ROOM3_ELEV − TILE_THICKNESS / 2`; the tall boxes exposed multiple side faces
+  to the isometric ray, causing spurious multi-hits with varying hitY values.
+  Ramp tiles keep `_getDaisGeom` because they are actual steps that need the
+  filled side faces to avoid visual gaps; flat floors do not
+
+### Changed
+- **Hover highlight colour** — changed from white (`0xffffff`) to hot pink
+  (`0xff69b4`); lava tiles retain their orange tint (`0xff8844`)
+
+---
+
 ## [1.3.2] - 2026-04-22
 
 ### Fixed
