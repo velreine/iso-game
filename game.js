@@ -548,7 +548,8 @@ const _pfDummy = new THREE.Object3D();
 _pfDummy.rotation.x = -Math.PI / 2;   // lay plane flat on the ground
 
 function _setTileInstance(mesh, idx, x, z) {
-  _pfDummy.position.set(x, 0.005, z);
+  const elev = tileMap[x]?.[z]?.elevation || 0;
+  _pfDummy.position.set(x, elev + 0.005, z);
   _pfDummy.updateMatrix();
   mesh.setMatrixAt(idx, _pfDummy.matrix);
 }

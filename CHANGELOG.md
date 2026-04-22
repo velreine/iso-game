@@ -6,6 +6,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.4] - 2026-04-22
+
+### Fixed
+- **Pathfinding visualisation elevation** — `_setTileInstance` now reads
+  `tileMap[x][z].elevation` and lifts each instance to `elevation + 0.005`;
+  the destination (green), planned path (red), and A\* explored (blue) layers
+  all go through this helper, so all three now sit on the tile surface for
+  raised tiles (ramp, dais platform, Room 3) instead of floating below them
+  at ground level
+
+---
+
 ## [1.3.3] - 2026-04-22
 
 ### Fixed
