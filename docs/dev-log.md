@@ -1387,3 +1387,11 @@ Added a fourth room (mossy green stone, east of Room 1) and a second z-axis ramp
 The connection between Room 1 and Room 4 requires no corridor — the wall generator skips walls wherever adjacent tiles exist in `tileMap`, so placing Room 4 at xMin:9 directly beside Room 1's xMax:8 opens a wide doorway for free.
 
 `_lvlBuildRampRoom` was extended to support `elevationAxis: 'z'`, stepping elevation per z-row (instead of x-column). The logic unifies into a single loop parameterised by axis, keeping the x-case unchanged.
+
+## Stage 18 — Decorative Raycast & Room 4 Fence (v1.4.2)
+
+Extended the hover raycast to include `decorativeMeshes` alongside `tileMeshes`. Each decorative mesh now carries `userData = { kind, id, w, h, d }` stamped in `_lvlBuildDecorativeMesh`. The best-hit selection uses actual hit-point Y for decoratives (they're tall objects whose faces sit above floor level) so they naturally beat the tiles beneath them.
+
+When the winning hit is a decorative, the `hoverHighlight` plane is rescaled to the object's footprint (`scale.set((w+0.08)/0.92, 1, (d+0.08)/0.92)`) and repositioned flush with its base. The orange pulsing overlay (`0xff8800`) distinguishes decorative hovers from tile hovers (pink). The debug HUD emits `decorative:<id>` for each decorative hit in the list.
+
+Room 4 was expanded to xMin:9 xMax:22 zMin:-10 zMax:6. A perimeter fence is generated programmatically inside the level IIFE using `_panel`/`_post` helpers and concatenated into the decoratives array. The fence has four gaps — west (Room 1 entrance), north (Ramp 2 entrance), east and south (side exits) — with corner and gap posts marking each opening.

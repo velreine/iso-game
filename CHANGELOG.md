@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.2] - 2026-04-23
+### Added
+- **Decorative raycast**: hover highlight and debug HUD now detect decorative objects (altar, pillars, fence). Hovered decorative shown in orange; HUD lists `decorative:<id>` alongside tile hits
+- **Highlight scales to object footprint**: `hoverHighlight` plane scales to match the hovered decorative's w×d dimensions, placed flush at its base
+- **Room 4 expanded**: xMax 17→22, zMin −6→−10 (now 14×17 tiles — large enough for comfortable play)
+- **Fence in Room 4**: dark-wood perimeter fence with 4 gaps (west to Room 1, north to Ramp 2, east side exit, south exit); generated programmatically from helper functions in the level IIFE
+- Pillars repositioned to flank the Ramp 2 descent into Room 4; Room 4 light moved to room centre with increased range
+
+---
+
 ## [1.4.1] - 2026-04-22
 ### Added
 - **Room 4 — The Ruined Court**: mossy green-stone room east of Room 1 (x:9–17, z:−6–6), opens directly through Room 1's east wall with no corridor needed

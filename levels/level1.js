@@ -1,9 +1,63 @@
 // ─── Level 1: The Stone Keep ──────────────────────────────────────────────────
 // All tile, light, and decorative data for level 1.
 // Loaded by the engine via <script src="./levels/level1.js"> and registered on
-// window.LEVELS.  No code runs here — pure data.
+// window.LEVELS.  Helper vars/functions are allowed inside the IIFE.
 (function () {
   window.LEVELS = window.LEVELS || {};
+
+  // ── Room 4 fence (generated) ─────────────────────────────────────────────
+  // Room 4: xMin:9 xMax:22 zMin:-10 zMax:6
+  // Fence runs along the inner face of the border tiles (0.5 inside each edge).
+  // Four gaps:  West  z=-1.5→1.5  (Room 1 entrance)
+  //             North x=12.5→16.5 (Ramp 2 entrance)
+  //             East  z=-4.5→-1.5 (side exit)
+  //             South x=14.5→17.5 (south exit)
+  var _FW  = 0x3a2510;   // fence panel colour (dark wood)
+  var _FPC = 0x2a1a0a;   // fence post colour  (darker wood)
+  var _FH  = 1.2;        // height
+  var _FY  = 0.6;        // centre Y (base flush with ground)
+  var _FT  = 0.12;       // panel thickness
+
+  function _panel(id, x, z, w, d) {
+    return { id: id, type: 'box', x: x, y: _FY, z: z,
+             w: w, h: _FH, d: d, color: _FW, castShadow: true };
+  }
+  function _post(id, x, z) {
+    return { id: id, type: 'box', x: x, y: _FY, z: z,
+             w: 0.22, h: _FH, d: 0.22, color: _FPC, castShadow: true };
+  }
+
+  var _fence = [
+    // West wall (x=9.5) — gap z=-1.5 to 1.5
+    _panel('fw_s',   9.5, -5.5, _FT, 8.0),   // z=-9.5 to -1.5
+    _panel('fw_n',   9.5,  3.5, _FT, 4.0),   // z= 1.5 to  5.5
+    // North wall (z=5.5) — gap x=12.5 to 16.5
+    _panel('fn_w',  11.0,  5.5, 3.0, _FT),   // x= 9.5 to 12.5
+    _panel('fn_e',  19.0,  5.5, 5.0, _FT),   // x=16.5 to 21.5
+    // East wall (x=21.5) — gap z=-4.5 to -1.5
+    _panel('fe_n',  21.5,  2.0, _FT, 7.0),   // z=-1.5 to  5.5
+    _panel('fe_s',  21.5, -7.0, _FT, 5.0),   // z=-9.5 to -4.5
+    // South wall (z=-9.5) — gap x=14.5 to 17.5
+    _panel('fs_w',  12.0, -9.5, 5.0, _FT),   // x= 9.5 to 14.5
+    _panel('fs_e',  19.5, -9.5, 4.0, _FT),   // x=17.5 to 21.5
+    // Corner posts
+    _post('fp_nw',   9.5,  5.5),
+    _post('fp_ne',  21.5,  5.5),
+    _post('fp_sw',   9.5, -9.5),
+    _post('fp_se',  21.5, -9.5),
+    // Gap posts — West entrance
+    _post('fp_w_s',  9.5, -1.5),
+    _post('fp_w_n',  9.5,  1.5),
+    // Gap posts — North (ramp) entrance
+    _post('fp_n_w', 12.5,  5.5),
+    _post('fp_n_e', 16.5,  5.5),
+    // Gap posts — East exit
+    _post('fp_e_n', 21.5, -1.5),
+    _post('fp_e_s', 21.5, -4.5),
+    // Gap posts — South exit
+    _post('fp_s_w', 14.5, -9.5),
+    _post('fp_s_e', 17.5, -9.5),
+  ];
 
   window.LEVELS.level1 = {
     id:          'level1',
@@ -71,7 +125,7 @@
       },
       {
         id: 'room4', type: 'stone', tileType: 'stone4',
-        xMin: 9, xMax: 17, zMin: -6, zMax: 6,
+        xMin: 9, xMax: 22, zMin: -10, zMax: 6,
         palette: [
           0x3d5a3e, 0x344f35, 0x406043, 0x384d3a,
           0x3b5540, 0x425e44, 0x365238, 0x3e583f,
@@ -151,9 +205,10 @@
       { id: 'pillar_r1_ne', type: 'box', x:  1.5, y: 0.9, z:  8.5, w: 0.28, h: 1.8, d: 0.28, color: 0x706858, castShadow: true },
       { id: 'pillar_r2_sw', type: 'box', x: -1.5, y: 0.9, z: 13.5, w: 0.28, h: 1.8, d: 0.28, color: 0x706858, castShadow: true },
       { id: 'pillar_r2_se', type: 'box', x:  1.5, y: 0.9, z: 13.5, w: 0.28, h: 1.8, d: 0.28, color: 0x706858, castShadow: true },
-      { id: 'pillar_r4_n',  type: 'box', x:  9.5, y: 0.9, z:  1.5, w: 0.28, h: 1.8, d: 0.28, color: 0x4a5a48, castShadow: true },
-      { id: 'pillar_r4_s',  type: 'box', x:  9.5, y: 0.9, z: -1.5, w: 0.28, h: 1.8, d: 0.28, color: 0x4a5a48, castShadow: true },
-    ],
+      // Pillars flanking the Ramp 2 descent into Room 4
+      { id: 'pillar_r4_nw', type: 'box', x: 13.0, y: 0.9, z: 4.5, w: 0.28, h: 1.8, d: 0.28, color: 0x4a5a48, castShadow: true },
+      { id: 'pillar_r4_ne', type: 'box', x: 15.0, y: 0.9, z: 4.5, w: 0.28, h: 1.8, d: 0.28, color: 0x4a5a48, castShadow: true },
+    ].concat(_fence),
 
     // ── Point lights ─────────────────────────────────────────────────────────
     // pulse: { base, amp, freq, phase } → intensity = base + sin(t*freq+phase)*amp
@@ -174,9 +229,9 @@
         pulse: { base: 1.2, amp: 0.35, freq: 1.1, phase: 1.2 },
       },
       {
-        id: 'room4', color: 0x60c070, intensity: 1.3, distance: 18,
-        x: 13, y: 3.0, z: 0,
-        pulse: { base: 1.1, amp: 0.3, freq: 0.9, phase: 2.1 },
+        id: 'room4', color: 0x60c070, intensity: 1.5, distance: 22,
+        x: 15.5, y: 3.0, z: -2,
+        pulse: { base: 1.2, amp: 0.35, freq: 0.9, phase: 2.1 },
       },
     ],
 

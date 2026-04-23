@@ -270,6 +270,8 @@ function _lvlBuildDecorativeMesh(def) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(def.w, def.h, def.d), mat);
   mesh.position.set(def.x, def.y, def.z);
   if (def.castShadow) mesh.castShadow = true;
+  // Tag so the raycaster can identify hits on decoratives
+  mesh.userData = { kind: 'decorative', id: def.id, w: def.w, h: def.h, d: def.d };
   scene.add(mesh);
   decorativeMeshes.push(mesh);
   for (const tile of (def.blocksNav || [])) {
@@ -286,7 +288,9 @@ function _lvlBuildLight(def) {
 
 function tearDownLevel() {
   cancelPathfind();
-  hoveredTile           = null;
+  hoveredTile    = null;
+  hoveredDecorId = null;
+  hoverHighlight.scale.set(1, 1, 1);
   hoverHighlight.visible = false;
   // path viz cleared via cancelPathfind → _clearAllViz
   for (const m of tileMeshes)         scene.remove(m);   tileMeshes.length = 0;
@@ -486,7 +490,8 @@ const destLayer     = _makeLayer(0x00ff44, 1,         4);   // bright green — 
 
 const raycaster   = new THREE.Raycaster();
 const mouse       = new THREE.Vector2(Infinity, Infinity);
-let   hoveredTile = null;   // { x, z, type, walkable } or null
+let   hoveredTile    = null;   // { x, z, type, walkable } or null
+let   hoveredDecorId = null;   // id string of the hovered decorative, or null
 
 // Right-click drag → camera pan
 renderer.domElement.addEventListener('mousedown', e => {
@@ -1107,62 +1112,78 @@ function animate() {
   // ── Mouse hover raycast ───────────────────────────────────────────────────
   if (hoverRaycastEnabled) {
     raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(tileMeshes);
+    const hits = raycaster.intersectObjects([...tileMeshes, ...decorativeMeshes]);
     if (hits.length > 0) {
-      // Pick the hit whose tile has the highest elevation; break ties by the
-      // highest intersection-point Y. This is more robust than ray-distance
-      // ordering because an isometric ray can be geometrically closer to a
-      // floor tile at a lower Z than to the elevated step tile that is visually
-      // in front of it. Elevation-first selection always picks the topmost tile.
-      const best = hits.reduce((a, b) => {
-        const ae = tileMap[Math.round(a.object.position.x)]?.[Math.round(a.object.position.z)]?.elevation || 0;
-        const be = tileMap[Math.round(b.object.position.x)]?.[Math.round(b.object.position.z)]?.elevation || 0;
-        if (be !== ae) return be > ae ? b : a;
-        return b.point.y > a.point.y ? b : a;
-      }, hits[0]);
-      const m  = best.object;
-      const tx = Math.round(m.position.x);
-      const tz = Math.round(m.position.z);
-      const td = tileMap[tx]?.[tz];
-      hoveredTile = td ? { x: tx, z: tz, type: td.type, walkable: td.walkable } : null;
+      // Pick the best hit. Decoratives rank by actual hit-point Y (they're tall
+      // objects whose side faces sit above floor level). Tiles rank by elevation
+      // then hitY — the same logic that handles isometric stair ambiguity.
+      const getKey = h => h.object.userData?.kind === 'decorative'
+        ? h.point.y
+        : (tileMap[Math.round(h.object.position.x)]?.[Math.round(h.object.position.z)]?.elevation || 0);
+      const best     = hits.reduce((a, b) => getKey(b) > getKey(a) ? b : a, hits[0]);
+      const bestObj  = best.object;
+      const isDecor  = bestObj.userData?.kind === 'decorative';
 
-      // Reposition highlight and pulse opacity — lift Y to sit on the tile surface
-      hoverHighlight.position.x = tx;
-      hoverHighlight.position.y = (td?.elevation || 0) + 0.005;
-      hoverHighlight.position.z = tz;
-      hoverHighlight.material.color.setHex(td?.type === 'lava' ? 0xff6600 : 0xff00dd);
       hoverHighlight.material.opacity = 0.18 + Math.sin(t * 5) * 0.07;
       hoverHighlight.visible = true;
 
-      if (hoveredTile) {
-        hoverInfoEl.textContent =
-          `hover  [${tx}, ${tz}]  ${hoveredTile.type}  walkable: ${hoveredTile.walkable}`;
+      if (isDecor) {
+        // ── Decorative hit ──────────────────────────────────────────────────
+        hoveredTile    = null;
+        hoveredDecorId = bestObj.userData.id;
+        const dw = bestObj.userData.w, dh = bestObj.userData.h, dd = bestObj.userData.d;
+        // Scale the tile-sized highlight plane to match the decorative's footprint
+        hoverHighlight.scale.set((dw + 0.08) / 0.92, 1, (dd + 0.08) / 0.92);
+        hoverHighlight.position.set(
+          bestObj.position.x,
+          bestObj.position.y - dh / 2 + 0.005,
+          bestObj.position.z
+        );
+        hoverHighlight.material.color.setHex(0xff8800);   // orange for decoratives
+        hoverInfoEl.textContent = `hover  decorative: ${hoveredDecorId}`;
         hoverInfoEl.style.display = '';
+      } else {
+        // ── Tile hit ────────────────────────────────────────────────────────
+        hoveredDecorId = null;
+        hoverHighlight.scale.set(1, 1, 1);
+        const tx = Math.round(bestObj.position.x);
+        const tz = Math.round(bestObj.position.z);
+        const td = tileMap[tx]?.[tz];
+        hoveredTile = td ? { x: tx, z: tz, type: td.type, walkable: td.walkable } : null;
+        hoverHighlight.position.x = tx;
+        hoverHighlight.position.y = (td?.elevation || 0) + 0.005;
+        hoverHighlight.position.z = tz;
+        hoverHighlight.material.color.setHex(td?.type === 'lava' ? 0xff6600 : 0xff00dd);
+        if (hoveredTile) {
+          hoverInfoEl.textContent =
+            `hover  [${tx}, ${tz}]  ${hoveredTile.type}  walkable: ${hoveredTile.walkable}`;
+          hoverInfoEl.style.display = '';
+        }
       }
 
       // ── Debug raycast overlay ─────────────────────────────────────────────
       if (debugRayEnabled) {
-        // Cyan ray line: from ray origin to best hit point
         const ray = raycaster.ray;
         const dbgPos = _dbgRayGeo.attributes.position;
         dbgPos.setXYZ(0, ray.origin.x, ray.origin.y, ray.origin.z);
         dbgPos.setXYZ(1, best.point.x,  best.point.y,  best.point.z);
         dbgPos.needsUpdate = true;
         debugRayLine.visible = true;
-        // Green sphere at intersection
         debugHitMarker.position.copy(best.point);
         debugHitMarker.visible = true;
-        // HUD: winner first, then remaining hits in ray-distance order
         const sortedHits = [best, ...hits.filter(h => h !== best)];
         const hitLines = sortedHits.map((h, i) => {
+          const hy   = h.point.y.toFixed(3);
+          const mark = i === 0 ? ' ◀ selected' : '';
+          if (h.object.userData?.kind === 'decorative') {
+            return `  [${i}] decorative:${h.object.userData.id}  hitY:${hy}${mark}`;
+          }
           const hx   = Math.round(h.object.position.x);
           const hz   = Math.round(h.object.position.z);
           const tile = tileMap[hx]?.[hz];
           const he   = (tile?.elevation || 0).toFixed(2);
-          const hy   = h.point.y.toFixed(3);
           const type = tile?.type     ?? 'unknown';
           const walk = tile?.walkable ? 'yes' : 'no';
-          const mark = i === 0 ? ' ◀ selected' : '';
           return `  [${i}] (${hx},${hz})  type:${type}  walkable:${walk}  elev:${he}  hitY:${hy}${mark}`;
         });
         debugRayInfoEl.textContent = `ray hits: ${hits.length}\n${hitLines.join('\n')}`;
@@ -1173,7 +1194,9 @@ function animate() {
         debugRayInfoEl.style.display = 'none';
       }
     } else {
-      hoveredTile = null;
+      hoveredTile    = null;
+      hoveredDecorId = null;
+      hoverHighlight.scale.set(1, 1, 1);
       hoverHighlight.visible = false;
       hoverInfoEl.style.display = 'none';
       debugRayLine.visible = false;
@@ -1181,7 +1204,9 @@ function animate() {
       debugRayInfoEl.style.display = 'none';
     }
   } else {
-    hoveredTile = null;
+    hoveredTile    = null;
+    hoveredDecorId = null;
+    hoverHighlight.scale.set(1, 1, 1);
     hoverHighlight.visible = false;
     hoverInfoEl.style.display = 'none';
     debugRayLine.visible = false;
