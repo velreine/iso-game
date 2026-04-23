@@ -11,3 +11,6 @@ services:
       - ./style.css:/usr/share/nginx/html/style.css:ro
       - ./version.txt:/usr/share/nginx/html/version.txt:ro
       - ./levels:/usr/share/nginx/html/levels:ro
+      - ./editor.html:/usr/share/nginx/html/editor.html:ro
+      - ./editor.js:/usr/share/nginx/html/editor.js:ro
+      - ./editor.css:/usr/share/nginx/html/editor.css:ro

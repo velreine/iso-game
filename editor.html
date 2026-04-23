@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Level Editor — iso-game</title>
+  <link rel="stylesheet" href="editor.css">
+</head>
+<body>
+
+  <!-- ── Toolbar ─────────────────────────────────────────────────────────── -->
+  <div id="toolbar">
+    <div class="tb-group" id="tool-buttons">
+      <button class="tool-btn active" data-tool="select"   title="Select (S)">◆ Select</button>
+      <button class="tool-btn"        data-tool="room"     title="Draw Room (R)">▣ Room</button>
+      <button class="tool-btn"        data-tool="elevated" title="Elevated Tile (E)">▲ Elev</button>
+      <button class="tool-btn"        data-tool="lava"     title="Paint Lava (V)">🔥 Lava</button>
+      <button class="tool-btn"        data-tool="decor"    title="Place Decorative (D)">□ Decor</button>
+      <button class="tool-btn"        data-tool="light"    title="Place Light (L)">✦ Light</button>
+      <button class="tool-btn"        data-tool="spawn"    title="Set Player Spawn (P)">⊕ Spawn</button>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-group">
+      <button id="btn-new">New</button>
+      <button id="btn-load-lvl1">Load level1</button>
+      <button id="btn-import">Import JS</button>
+      <button id="btn-export">Export</button>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-group" id="status-wrap">
+      <span id="status-text">Ready — draw in the TOP view (top-right quadrant)</span>
+    </div>
+  </div>
+
+  <!-- ── Main layout ─────────────────────────────────────────────────────── -->
+  <div id="main">
+
+    <!-- Four viewports -->
+    <div id="viewports">
+      <canvas id="vp-canvas"></canvas>
+
+      <!-- Dividers drawn in CSS via pseudo-elements -->
+
+      <!-- Viewport labels -->
+      <div class="vp-label" id="lbl-persp">3D  ·  right-drag look  ·  WASD move</div>
+      <div class="vp-label" id="lbl-top">TOP  (XZ)  ·  wheel zoom  ·  mid-drag pan</div>
+      <div class="vp-label" id="lbl-front">FRONT  (XY)</div>
+      <div class="vp-label" id="lbl-side">SIDE  (ZY)</div>
+
+      <!-- Cursor world-coordinate readouts -->
+      <div class="vp-coord" id="coord-top"></div>
+      <div class="vp-coord" id="coord-front"></div>
+      <div class="vp-coord" id="coord-side"></div>
+
+      <!-- SVG overlay used for the room-draw rectangle preview -->
+      <svg id="draw-svg" xmlns="http://www.w3.org/2000/svg">
+        <rect id="draw-rect"
+              fill="rgba(0,255,80,0.10)" stroke="#00ff50"
+              stroke-width="1.5" stroke-dasharray="5 3"
+              x="0" y="0" width="0" height="0" visibility="hidden"/>
+      </svg>
+    </div>
+
+    <!-- Right panel -->
+    <div id="right-panel">
+
+      <!-- Level metadata -->
+      <div class="panel-section">
+        <div class="section-title">Level</div>
+        <div class="prop-row"><label>Name</label><input type="text" id="meta-name" value="New Level"></div>
+        <div class="prop-row"><label>ID</label><input type="text" id="meta-id" value="level1"></div>
+        <div class="prop-row"><label>Step H</label><input type="number" id="meta-steph" value="0.3" step="0.1" min="0.1" max="1.0"></div>
+        <div class="prop-row"><label>Spawn X</label><input type="number" id="meta-spawnx" value="0" step="1"></div>
+        <div class="prop-row"><label>Spawn Z</label><input type="number" id="meta-spawnz" value="0" step="1"></div>
+      </div>
+
+      <!-- Object layers list -->
+      <div class="panel-section" id="layers-section">
+        <div class="section-title">
+          Objects
+          <div class="title-btns">
+            <button id="btn-dup-obj" title="Duplicate">⧉</button>
+            <button id="btn-del-obj" title="Delete">✕</button>
+          </div>
+        </div>
+        <div id="layers-list"></div>
+      </div>
+
+      <!-- Properties of selected object -->
+      <div class="panel-section" id="props-section">
+        <div class="section-title">Properties</div>
+        <div id="props-content"><p class="hint">Nothing selected.</p></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Room-creation dialog ────────────────────────────────────────────── -->
+  <div id="room-dialog" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-title">New Room</div>
+      <div class="prop-row"><label>Room ID</label><input type="text" id="rd-id" value="room1"></div>
+      <div class="prop-row">
+        <label>Type</label>
+        <select id="rd-type">
+          <option value="stone">stone</option>
+          <option value="corridor">corridor</option>
+          <option value="ramp">ramp</option>
+        </select>
+      </div>
+      <div class="prop-row"><label>Tile Type</label><input type="text" id="rd-tiletype" value="stone"></div>
+      <div class="prop-row"><label>Elevation</label><input type="number" id="rd-elevation" value="0" step="0.3" min="0" max="10"></div>
+      <div id="rd-bounds-row" class="prop-row hint-row">
+        <span id="rd-bounds-text"></span>
+      </div>
+      <!-- Ramp-only options -->
+      <div id="rd-ramp-opts" class="hidden">
+        <div class="prop-row">
+          <label>Ramp Axis</label>
+          <select id="rd-rampaxis">
+            <option value="x">X axis</option>
+            <option value="z">Z axis</option>
+          </select>
+        </div>
+        <div class="prop-row"><label>Start Elev</label><input type="number" id="rd-rampstart" value="0.3" step="0.3" min="0.3" max="10"></div>
+      </div>
+      <!-- Corridor-only options -->
+      <div id="rd-corridor-opts" class="hidden">
+        <div class="prop-row"><label>Door Color</label><input type="color" id="rd-doorcolor" value="#6a6040"></div>
+      </div>
+      <div class="prop-row palette-row">
+        <label>Palette</label>
+        <div id="rd-palette-list"></div>
+        <button id="rd-add-color" class="small-btn">+ Add</button>
+      </div>
+      <div class="modal-buttons">
+        <button id="rd-cancel">Cancel</button>
+        <button id="rd-create" class="btn-primary">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Elevated-tile dialog ────────────────────────────────────────────── -->
+  <div id="elev-dialog" class="modal hidden">
+    <div class="modal-box narrow">
+      <div class="modal-title">Elevated Tile</div>
+      <div class="prop-row"><label>Elevation</label><input type="number" id="ed-elev" value="0.3" step="0.3" min="0.3" max="10"></div>
+      <div class="prop-row">
+        <label>Type</label>
+        <select id="ed-type">
+          <option value="step">step</option>
+          <option value="platform">platform</option>
+        </select>
+      </div>
+      <div class="modal-buttons">
+        <button id="ed-cancel">Cancel</button>
+        <button id="ed-ok" class="btn-primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Export modal ─────────────────────────────────────────────────────── -->
+  <div id="export-modal" class="modal hidden">
+    <div class="modal-box wide">
+      <div class="modal-title">Export Level File</div>
+      <textarea id="export-text" readonly spellcheck="false"></textarea>
+      <div class="modal-buttons">
+        <button id="btn-copy-export">Copy</button>
+        <button id="btn-dl-export">Download</button>
+        <button id="btn-close-export">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Import modal ─────────────────────────────────────────────────────── -->
+  <div id="import-modal" class="modal hidden">
+    <div class="modal-box wide">
+      <div class="modal-title">Import Level JS</div>
+      <p class="hint">Paste the contents of a level <code>.js</code> file.</p>
+      <textarea id="import-text" spellcheck="false" placeholder="(function () { window.LEVELS = ...; }());"></textarea>
+      <div class="modal-buttons">
+        <button id="btn-cancel-import">Cancel</button>
+        <button id="btn-do-import" class="btn-primary">Import</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="./levels/level1.js"></script>
+  <script src="editor.js"></script>
+</body>
+</html>

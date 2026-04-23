@@ -6,6 +6,28 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.3] - 2026-04-23
+### Added
+- **Level Editor** (`editor.html` / `editor.js` / `editor.css`): Hammer-style four-viewport level editor served at `/editor.html`
+  - **Four viewports**: perspective 3D (bottom-left), top-down ortho XZ (top-right), front ortho XY (bottom-right), side ortho ZY (top-left)
+  - **Perspective controls**: right-drag to look, WASD/Q/E to fly, scroll to dolly
+  - **Ortho controls**: scroll to zoom all ortho views, middle-drag to pan each view independently
+  - **Tools** (keyboard shortcuts S/R/E/V/D/L/P): Select, Room draw, Elevated tile, Lava paint, Decorative box, Light, Spawn
+  - **Room tool**: drag rectangle in top view → room dialog with type (stone/corridor/ramp), palette, elevation, ramp axis/start, door colour
+  - **Lava tool**: click toggle on any stone room tile
+  - **Elevated tile tool**: click tile → dialog sets elevation + type (step/platform)
+  - **Decor/Light tools**: click top view to place; property panel for dimensions/colour/position
+  - **Spawn tool**: click top view to place the player start marker
+  - **Property panel**: live-editable fields for selected room/elevated/decor/light; palette swatch editor
+  - **Layers panel**: scrollable object list; click to select; duplicate (⧉) and delete (✕) buttons
+  - **Undo** (Ctrl+Z, up to 50 steps); Delete key removes selected object
+  - **Export**: serialises level to JS file ready for `levels/<id>.js`; copy-to-clipboard and download
+  - **Import**: paste any level JS file to load it for editing
+  - **Load level1**: button to load the shipped level1 data directly
+  - Dark theme with cross-hair viewport dividers and coordinate readouts
+
+---
+
 ## [1.4.2] - 2026-04-23
 ### Added
 - **Decorative raycast**: hover highlight and debug HUD now detect decorative objects (altar, pillars, fence). Hovered decorative shown in orange; HUD lists `decorative:<id>` alongside tile hits

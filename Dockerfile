@@ -10,6 +10,9 @@ COPY game.js      /usr/share/nginx/html/
 COPY style.css    /usr/share/nginx/html/
 COPY version.txt  /usr/share/nginx/html/
 COPY levels/      /usr/share/nginx/html/levels/
+COPY editor.html  /usr/share/nginx/html/
+COPY editor.js    /usr/share/nginx/html/
+COPY editor.css   /usr/share/nginx/html/
 
 # Use custom nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
