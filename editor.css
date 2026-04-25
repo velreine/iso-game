@@ -151,31 +151,40 @@ html, body {
 .vp-label {
   position: absolute;
   font-size: 10px;
-  color: var(--text-hint);
+  font-weight: 600;
+  color: #ffffff;
+  background: rgba(0,0,0,0.88);
   pointer-events: none;
   z-index: 6;
-  padding: 4px 6px;
+  padding: 3px 7px;
+  border-radius: 2px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-#lbl-persp { bottom: 4px; left: 4px; }
-#lbl-top   { top:   4px; right: 4px; }
-#lbl-front { bottom: 4px; right: 4px; }
-#lbl-side  { top:   4px; left: 4px; }
+/* Each label sits inside its own quadrant corner */
+#lbl-persp { bottom: 6px; left:  6px; }           /* BL quadrant */
+#lbl-top   { top:    6px; right: 6px; }            /* TR quadrant */
+#lbl-front { bottom: 6px; right: 6px; }            /* BR quadrant */
+#lbl-side  { top:    6px; left:  6px; }            /* TL quadrant */
 
-/* Coordinate readouts */
+/* Coordinate readouts — inside the same quadrant as their label but opposite corner */
 .vp-coord {
   position: absolute;
   font-size: 10px;
   font-family: 'Consolas', 'Courier New', monospace;
   color: var(--highlight);
+  background: rgba(0,0,0,0.7);
+  border-radius: 2px;
   pointer-events: none;
   z-index: 6;
-  padding: 4px 6px;
+  padding: 3px 7px;
 }
-#coord-top   { bottom: 4px; right: 4px; }
-#coord-front { top:    4px; right: 4px; }
-#coord-side  { top:    4px; left:  4px; }
+/* coord-top lives in the TR quadrant (top-right), shown at bottom of that quadrant */
+#coord-top   { top: 50%;  right: 6px;  transform: translateY(4px); }
+/* coord-front in BR quadrant, top of that quadrant */
+#coord-front { top: 50%;  right: 6px;  transform: translateY(28px); }
+/* coord-side in TL quadrant, bottom of that quadrant */
+#coord-side  { top: 50%;  left:  6px;  transform: translateY(-28px); }
 
 /* SVG draw overlay */
 #draw-svg {

@@ -17,6 +17,7 @@
       <button class="tool-btn"        data-tool="lava"     title="Paint Lava (V)">🔥 Lava</button>
       <button class="tool-btn"        data-tool="decor"    title="Place Decorative (D)">□ Decor</button>
       <button class="tool-btn"        data-tool="light"    title="Place Light (L)">✦ Light</button>
+      <button class="tool-btn"        data-tool="tile"     title="Single Tile (T)">◻ Tile</button>
       <button class="tool-btn"        data-tool="spawn"    title="Set Player Spawn (P)">⊕ Spawn</button>
     </div>
     <div class="tb-sep"></div>
@@ -52,11 +53,15 @@
       <div class="vp-coord" id="coord-front"></div>
       <div class="vp-coord" id="coord-side"></div>
 
-      <!-- SVG overlay used for the room-draw rectangle preview -->
+      <!-- SVG overlay: room-draw preview + marquee selection -->
       <svg id="draw-svg" xmlns="http://www.w3.org/2000/svg">
         <rect id="draw-rect"
               fill="rgba(0,255,80,0.10)" stroke="#00ff50"
               stroke-width="1.5" stroke-dasharray="5 3"
+              x="0" y="0" width="0" height="0" visibility="hidden"/>
+        <rect id="marquee-rect"
+              fill="rgba(60,120,255,0.07)" stroke="#4488ff"
+              stroke-width="1" stroke-dasharray="4 2"
               x="0" y="0" width="0" height="0" visibility="hidden"/>
       </svg>
     </div>

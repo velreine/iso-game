@@ -6,6 +6,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.4] - 2026-04-25
+### Added
+- **Batch property editing**: when 2+ items of the same kind are selected the Properties panel shows shared fields instead of the "N items selected" hint
+  - **Rooms**: batch-edit elevation; palette swatches editable per-index across all rooms (click swatch → colour picker applies to all); "Add" appends a colour entry to every selected room's palette; delete (✕) removes an index from all
+  - **Standalone tiles**: batch-edit elevation and colour
+  - **Decoratives**: batch-edit colour, W/H/D dimensions
+  - **Lights**: batch-edit colour, intensity, distance
+  - **Elevated tiles**: batch-edit elevation and type (step/platform)
+  - **Mixed-kind selections**: shows elevation field when all selected items expose it
+  - Fields where values differ show a blank input with "mixed" placeholder — entering a value overrides all items; colour pickers show at 55% opacity to indicate mixed state
+
 ## [1.4.3] - 2026-04-23
 ### Added
 - **Level Editor** (`editor.html` / `editor.js` / `editor.css`): Hammer-style four-viewport level editor served at `/editor.html`
