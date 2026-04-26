@@ -16,20 +16,28 @@ const ES = {
   playerStart: { x: 0, z: 0 },
   rooms: [], elevatedTiles: [], decoratives: [], lights: [], portals: [],
   standaloneTiles: [],
+  brushes:  [],   // Hammer-style solid brushes
+  navMesh:  [],   // baked nav tiles [{x,z,elevation}]
 
   // Multi-selection: array of {kind, id}
-  // kind: 'room' | 'elevated' | 'decor' | 'light' | 'standalone'
+  // kind: 'room' | 'elevated' | 'decor' | 'light' | 'standalone' | 'brush'
   selection: [],
 
   tool: 'select',
 
-  // Room-draw drag
+  // Room/brush draw drag
   drawing:   false,
   drawStart: null,
   drawEnd:   null,
 
   undoStack: [],
 };
+
+// BoxGeometry face-group order (Three.js r128): px nx py ny pz nz
+const FACE_ORDER = ['px','nx','py','ny','pz','nz'];
+const FACE_LABEL = { py:'Top +Y', ny:'Bot −Y', px:'Rt +X', nx:'Lt −X', pz:'Ft +Z', nz:'Bk −Z' };
+let _showNavMesh = false;
+let _selectedFace = null; // { brushId, faceKey } — face highlighted in panel
 
 // ── Selection helpers ─────────────────────────────────────────────────────────
 function selContains(kind, id) { return ES.selection.some(s => s.kind === kind && s.id === id); }
@@ -66,6 +74,13 @@ const gridFront = new THREE.GridHelper(80, 80, 0x2a2a44, 0x18182e);             
 gridFront.rotation.x = Math.PI / 2;
 const gridSide  = new THREE.GridHelper(80, 80, 0x2a2a44, 0x18182e);               // ZY
 gridSide.rotation.z  = Math.PI / 2;
+
+// Tiles are centered at integers; their edges fall at ±0.5, ±1.5, etc.
+// Shifting each grid by 0.5 in its two active axes puts grid lines on tile boundaries.
+gridTop.position.set(0.5, 0,   0.5);   // XZ: offset X and Z
+gridFront.position.set(0.5, 0.5, 0);   // XY: offset X and Y
+gridSide.position.set(0,   0.5, 0.5);  // ZY: offset Y and Z
+
 helperScene.add(gridTop, gridFront, gridSide);
 
 // ── Edge-box factory ──────────────────────────────────────────────────────────
@@ -100,8 +115,8 @@ function _addSelOutline(mesh) {
 // ── Resize handles (shown for single room selection) ─────────────────────────
 const handlesGroup = new THREE.Group();
 helperScene.add(handlesGroup);
-const HANDLE_AXES  = ['xMin', 'xMax', 'zMin', 'zMax'];
-const HANDLE_COLOR = { xMin: 0xff4444, xMax: 0xff4444, zMin: 0x4488ff, zMax: 0x4488ff };
+const HANDLE_AXES  = ['xMin', 'xMax', 'zMin', 'zMax', 'yMin', 'yMax'];
+const HANDLE_COLOR = { xMin: 0xff4444, xMax: 0xff4444, zMin: 0x4488ff, zMax: 0x4488ff, yMin: 0x44cc44, yMax: 0x44cc44 };
 const handleMeshes = {};
 HANDLE_AXES.forEach(ax => {
   const m = new THREE.Mesh(
@@ -197,6 +212,13 @@ function topToWorld(cx, cy) {
   const pt=new THREE.Vector3();
   return ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),pt) ? {x:pt.x,z:pt.z} : null;
 }
+// World Y from mouse position in front or side view (ortho, Y is vertical axis)
+function _worldYFromView(cx, cy, vp) {
+  if (vp!=='front'&&vp!=='side') return null;
+  const clip=toClip(vp,cx,cy);
+  return (vp==='front'?frontPanY:sidePanY)+clip.y*orthoZoom;
+}
+
 // Project world pos → CSS coords in a given viewport
 function worldToCSS(wx, wy, wz, vp) {
   const v=new THREE.Vector3(wx,wy,wz).project(_camFor(vp));
@@ -210,14 +232,19 @@ const tmSet=(x,z,d)=>{ (tileMap[x]||(tileMap[x]={}))[z]=d; };
 const tmGet=(x,z)=>tileMap[x]?.[z];
 
 // ── Geometry arrays ───────────────────────────────────────────────────────────
-let tileMeshes=[], wallMeshes=[], decorMeshes=[], lightMeshes=[], standaloneMs=[];
+let tileMeshes=[], wallMeshes=[], decorMeshes=[], lightMeshes=[], standaloneMs=[], brushMeshes=[];
+
+// Nav mesh overlay lives in helperScene (never wireframed)
+const navOverlayGroup = new THREE.Group();
+helperScene.add(navOverlayGroup);
+const _navMat = new THREE.MeshBasicMaterial({ color:0x00ff88, transparent:true, opacity:0.35, depthWrite:false, side:THREE.DoubleSide });
 
 function rebuildLevel() {
   while (levelGroup.children.length) {
     const o=levelGroup.children[0]; levelGroup.remove(o);
     if (o.geometry) o.geometry.dispose();
   }
-  tileMeshes=[]; wallMeshes=[]; decorMeshes=[]; lightMeshes=[]; standaloneMs=[];
+  tileMeshes=[]; wallMeshes=[]; decorMeshes=[]; lightMeshes=[]; standaloneMs=[]; brushMeshes=[];
   tileMap={};
 
   ES.rooms.forEach(r => r.type==='ramp' ? _buildRampRoom(r) : _buildRoom(r));
@@ -226,6 +253,8 @@ function rebuildLevel() {
   _buildWalls();
   ES.decoratives.forEach(_buildDecorMesh);
   ES.lights.forEach(_buildLightHelper);
+  ES.brushes.forEach(_buildBrushMesh);
+  _buildNavOverlay();
 
   spawnMesh.position.set(ES.playerStart.x, 0.4, ES.playerStart.z);
   _refreshSelBoxes();
@@ -318,6 +347,49 @@ function _buildDecorMesh(def) {
   levelGroup.add(mesh); decorMeshes.push(mesh);
 }
 
+function _buildBrushMesh(brush) {
+  // Tile-indexed: brush visually spans (xMin-0.5, yMin, zMin-0.5) to (xMax+0.5, yMax, zMax+0.5)
+  const w=(brush.xMax-brush.xMin)+1, h=brush.yMax-brush.yMin, d=(brush.zMax-brush.zMin)+1;
+  if (h<=0) return;
+  const geo=new THREE.BoxGeometry(w,h,d);
+  // Three.js BoxGeometry group order: px nx py ny pz nz
+  const mats=FACE_ORDER.map(fk=>{
+    const f=(brush.faces||{})[fk]||{};
+    if (f.nodraw) return new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0,depthWrite:false});
+    return new THREE.MeshLambertMaterial({color:f.color??0x808080});
+  });
+  const mesh=new THREE.Mesh(geo,mats);
+  mesh.position.set((brush.xMin+brush.xMax)/2, (brush.yMin+brush.yMax)/2, (brush.zMin+brush.zMax)/2);
+  mesh.castShadow=mesh.receiveShadow=true;
+  mesh.userData={kind:'brush',id:brush.id};
+  levelGroup.add(mesh); brushMeshes.push(mesh);
+}
+
+// Derive integer nav tiles from walkable brushes + rooms + standalone tiles
+function _compileNavMesh() {
+  const cells={};
+  const stamp=(x,z,elev)=>{ const k=`${x},${z}`; if(!cells[k]||cells[k].elevation<elev) cells[k]={x,z,elevation:elev}; };
+  ES.brushes.forEach(b=>{ if(!b.walkable)return; for(let x=b.xMin;x<=b.xMax;x++) for(let z=b.zMin;z<=b.zMax;z++) stamp(x,z,b.yMax); });
+  ES.rooms.forEach(r=>{ for(let x=r.xMin;x<=r.xMax;x++) for(let z=r.zMin;z<=r.zMax;z++) stamp(x,z,r.elevation||0); });
+  ES.standaloneTiles.forEach(st=>stamp(st.x,st.z,st.elevation||0));
+  ES.navMesh=Object.values(cells);
+  _buildNavOverlay();
+  _setStatus(`Nav compiled — ${ES.navMesh.length} tile(s)  ·  export to bake into level`);
+  return ES.navMesh;
+}
+
+function _buildNavOverlay() {
+  while(navOverlayGroup.children.length){ const o=navOverlayGroup.children[0]; navOverlayGroup.remove(o); if(o.geometry)o.geometry.dispose(); }
+  if (!_showNavMesh||!ES.navMesh.length) return;
+  ES.navMesh.forEach(cell=>{
+    const geo=new THREE.PlaneGeometry(0.92,0.92);
+    const m=new THREE.Mesh(geo,_navMat);
+    m.rotation.x=-Math.PI/2;
+    m.position.set(cell.x,cell.elevation+0.012,cell.z);
+    navOverlayGroup.add(m);
+  });
+}
+
 function _buildLightHelper(def) {
   const s=new THREE.Mesh(new THREE.SphereGeometry(0.18,6,6),new THREE.MeshBasicMaterial({color:def.color||0xffffff}));
   s.position.set(def.x||0,def.y||2,def.z||0); s.userData={kind:'light',id:def.id};
@@ -336,11 +408,16 @@ function _refreshSelBoxes() {
     _addSelOutline(mesh);
   });
 
-  // Single-room selection: show handles + bounding box
+  // Single-room: show bounds box + handles
   const roomSels=ES.selection.filter(s=>s.kind==='room');
   if (roomSels.length===1) {
     _updateRoomBoundsBox(roomSels[0].id);
-    _updateHandles(roomSels[0].id);
+    _updateHandles(roomSels[0].id, 'room');
+  }
+  // Single-brush: show handles
+  const brushSels=ES.selection.filter(s=>s.kind==='brush');
+  if (brushSels.length===1 && roomSels.length===0) {
+    _updateHandles(brushSels[0].id, 'brush');
   }
 }
 
@@ -349,6 +426,7 @@ function _findMeshById(kind, id) {
   if (kind==='light')      return lightMeshes.find(m=>m.userData.id===id&&m.userData.kind==='light')||null;
   if (kind==='standalone') return standaloneMs.find(m=>m.userData.id===id)||null;
   if (kind==='room')       return tileMeshes.find(m=>m.userData.roomId===id)||null;
+  if (kind==='brush')      return brushMeshes.find(m=>m.userData.id===id)||null;
   if (kind==='elevated')   { const [x,z]=id.split(',').map(Number); return tileMeshes.find(m=>m.userData.kind==='elevated'&&m.userData.x===x&&m.userData.z===z)||null; }
   return null;
 }
@@ -363,15 +441,32 @@ function _updateRoomBoundsBox(roomId) {
   roomBoundsBox.scale.set(x1-x0,ht,z1-z0);
   roomBoundsBox.visible=true;
 }
-function _updateHandles(roomId) {
-  const room=ES.rooms.find(r=>r.id===roomId);
-  if (!room) { handlesGroup.visible=false; return; }
-  handlesGroup.visible=true;
-  const elev=(room.elevation||0)+0.4, mx=(room.xMin+room.xMax)/2, mz=(room.zMin+room.zMax)/2;
-  handleMeshes.xMin.position.set(room.xMin-0.5,elev,mz);
-  handleMeshes.xMax.position.set(room.xMax+0.5,elev,mz);
-  handleMeshes.zMin.position.set(mx,elev,room.zMin-0.5);
-  handleMeshes.zMax.position.set(mx,elev,room.zMax+0.5);
+function _updateHandles(id, kind) {
+  handleMeshes.yMin.visible = false;
+  handleMeshes.yMax.visible = false;
+  if (kind === 'room') {
+    const room=ES.rooms.find(r=>r.id===id);
+    if (!room) { handlesGroup.visible=false; return; }
+    handlesGroup.visible=true;
+    const elev=(room.elevation||0)+0.4, mx=(room.xMin+room.xMax)/2, mz=(room.zMin+room.zMax)/2;
+    handleMeshes.xMin.position.set(room.xMin-0.5,elev,mz);
+    handleMeshes.xMax.position.set(room.xMax+0.5,elev,mz);
+    handleMeshes.zMin.position.set(mx,elev,room.zMin-0.5);
+    handleMeshes.zMax.position.set(mx,elev,room.zMax+0.5);
+  } else if (kind === 'brush') {
+    const b=ES.brushes.find(b=>b.id===id);
+    if (!b) { handlesGroup.visible=false; return; }
+    handlesGroup.visible=true;
+    const mx=(b.xMin+b.xMax)/2, mz=(b.zMin+b.zMax)/2, my=(b.yMin+b.yMax)/2;
+    handleMeshes.xMin.position.set(b.xMin-0.5,my,mz);
+    handleMeshes.xMax.position.set(b.xMax+0.5,my,mz);
+    handleMeshes.zMin.position.set(mx,my,b.zMin-0.5);
+    handleMeshes.zMax.position.set(mx,my,b.zMax+0.5);
+    handleMeshes.yMin.position.set(mx,b.yMin,mz); handleMeshes.yMin.visible=true;
+    handleMeshes.yMax.position.set(mx,b.yMax,mz); handleMeshes.yMax.visible=true;
+  } else {
+    handlesGroup.visible=false;
+  }
 }
 
 // Preview box during room creation
@@ -394,12 +489,15 @@ function _raycastHandles(cx, cy, vp) {
   return hits.length ? hits[0].object.userData.handleType : null;
 }
 
-// Returns userData of first hit object in levelGroup
+// Returns userData of first hit; for brushes also includes materialIndex for face ID
 function _raycastLevel(cx, cy, vp) {
   raycaster.setFromCamera(toClip(vp,cx,cy), _camFor(vp));
-  const hits=raycaster.intersectObjects([...tileMeshes,...decorMeshes,...lightMeshes]);
+  const hits=raycaster.intersectObjects([...tileMeshes,...decorMeshes,...lightMeshes,...brushMeshes]);
   if (!hits.length) return null;
-  return hits[0].object.userData;
+  const hit=hits[0];
+  const ud={...hit.object.userData};
+  if (ud.kind==='brush' && hit.face!=null) ud.materialIndex=hit.face.materialIndex;
+  return ud;
 }
 
 // ── Drag-state ────────────────────────────────────────────────────────────────
@@ -478,17 +576,25 @@ function _onLeftDown(cx, cy, ctrl) {
     // 1. Resize handle?
     const ht=_raycastHandles(cx,cy,vp);
     if (ht) {
-      const s=ES.selection.find(s=>s.kind==='room');
-      if (s) { _dragHandle={type:ht, room:ES.rooms.find(r=>r.id===s.id)}; return; }
+      const roomSel=ES.selection.find(s=>s.kind==='room');
+      if (roomSel) { _dragHandle={type:ht,kind:'room',obj:ES.rooms.find(r=>r.id===roomSel.id)}; return; }
+      const brushSel=ES.selection.find(s=>s.kind==='brush');
+      if (brushSel) { _dragHandle={type:ht,kind:'brush',obj:ES.brushes.find(b=>b.id===brushSel.id)}; return; }
     }
 
     // 2. Hit any object?
     const ud=_raycastLevel(cx,cy,vp);
     if (ud) {
-      const { kind, id: rawId, roomId, x, z } = ud;
-      const kind2 = (kind==='tile'||kind==='wall') ? (roomId ? 'room' : (ud.kind==='standalone' ? 'standalone' : null)) : kind;
-      const id2   = kind2==='room' ? roomId : (kind2==='elevated' ? `${x},${z}` : (kind2==='standalone' ? rawId : rawId));
+      const { kind, id: rawId, roomId, x, z, materialIndex } = ud;
+      let kind2 = (kind==='tile'||kind==='wall') ? (roomId ? 'room' : (ud.kind==='standalone' ? 'standalone' : null)) : kind;
+      const id2   = kind2==='room' ? roomId : (kind2==='elevated' ? `${x},${z}` : rawId);
       if (!kind2) return;
+
+      // Face selection on already-selected brush
+      if (kind2==='brush' && materialIndex!=null && selContains('brush',id2)) {
+        _selectedFace = { brushId: id2, faceKey: FACE_ORDER[materialIndex] };
+        _showPropsForSelection(); return;
+      }
 
       if (ctrl) {
         // Toggle in selection
@@ -518,7 +624,7 @@ function _onLeftDown(cx, cy, ctrl) {
   }
 
   // ── Other tools ──
-  if (ES.tool==='room' && vp==='top') {
+  if ((ES.tool==='room'||ES.tool==='brush') && vp==='top') {
     const wp=topToWorld(cx,cy);
     if (wp) {
       ES.drawing=true; ES.drawStart=ES.drawEnd={x:Math.round(wp.x),z:Math.round(wp.z)};
@@ -562,6 +668,15 @@ function _onLeftUp(ctrl) {
       if (x1>=x0&&z1>=z0) _openRoomDialog(x0,x1,z0,z1);
     }
   }
+  // Finish brush draw
+  if (ES.tool==='brush' && ES.drawing) {
+    ES.drawing=false; _showDrawRect(false); previewBox.visible=false;
+    if (ES.drawStart&&ES.drawEnd) {
+      const x0=Math.min(ES.drawStart.x,ES.drawEnd.x), x1=Math.max(ES.drawStart.x,ES.drawEnd.x);
+      const z0=Math.min(ES.drawStart.z,ES.drawEnd.z), z1=Math.max(ES.drawStart.z,ES.drawEnd.z);
+      if (x1>=x0&&z1>=z0) _openBrushDialog(x0,x1,z0,z1);
+    }
+  }
 
   // Finish marquee
   if (_dragMarquee) {
@@ -597,16 +712,25 @@ function _onMouseMove(cx, cy, dx, dy) {
 
   // Handle resize
   if (_dragHandle && mouseButtons.left) {
-    const wp=topToWorld(cx,cy); if (!wp) return;
-    const r=_dragHandle.room, sx=Math.round(wp.x), sz=Math.round(wp.z);
-    switch (_dragHandle.type) {
-      case 'xMin': r.xMin=Math.min(sx,r.xMax-1); break;
-      case 'xMax': r.xMax=Math.max(sx,r.xMin+1); break;
-      case 'zMin': r.zMin=Math.min(sz,r.zMax-1); break;
-      case 'zMax': r.zMax=Math.max(sz,r.zMin+1); break;
+    const o=_dragHandle.obj;
+    if (['xMin','xMax','zMin','zMax'].includes(_dragHandle.type)) {
+      const wp=topToWorld(cx,cy); if (!wp) return;
+      const sx=Math.round(wp.x), sz=Math.round(wp.z);
+      switch (_dragHandle.type) {
+        case 'xMin': o.xMin=Math.min(sx,o.xMax-1); break;
+        case 'xMax': o.xMax=Math.max(sx,o.xMin+1); break;
+        case 'zMin': o.zMin=Math.min(sz,o.zMax-1); break;
+        case 'zMax': o.zMax=Math.max(sz,o.zMin+1); break;
+      }
+      _setStatus(`${o.id}: x[${o.xMin}→${o.xMax}]  z[${o.zMin}→${o.zMax}]`);
+    } else if (['yMin','yMax'].includes(_dragHandle.type)) {
+      const y=_worldYFromView(cx,cy,vp); if (y===null) return;
+      const snap=parseFloat(y.toFixed(2));
+      if (_dragHandle.type==='yMin') o.yMin=Math.min(snap,o.yMax-0.1);
+      else                           o.yMax=Math.max(snap,o.yMin+0.1);
+      _setStatus(`${o.id}: y[${o.yMin}→${o.yMax}]`);
     }
     rebuildLevel();
-    _setStatus(`${r.id}: x[${r.xMin}→${r.xMax}]  z[${r.zMin}→${r.zMax}]`);
     return;
   }
 
@@ -639,8 +763,8 @@ function _onMouseMove(cx, cy, dx, dy) {
     if(vp==='side')  { sidePanZ+=dx*ps; sidePanY+=dy*ps; _applySideCam(); }
   }
 
-  // Room draw
-  if (mouseButtons.left && ES.tool==='room' && ES.drawing && vp==='top') {
+  // Room / brush draw
+  if (mouseButtons.left && (ES.tool==='room'||ES.tool==='brush') && ES.drawing && vp==='top') {
     const wp=topToWorld(cx,cy);
     if (wp) { ES.drawEnd={x:Math.round(wp.x),z:Math.round(wp.z)}; _updateDrawRect(); _updatePreviewBox(); }
   }
@@ -680,6 +804,10 @@ function _startMoveDrag(worldPos) {
         const l=ES.lights.find(l=>l.id===s.id);
         return l ? {...s, orig:{x:l.x,z:l.z}} : {...s,orig:null};
       }
+      if (s.kind==='brush') {
+        const b=ES.brushes.find(b=>b.id===s.id);
+        return b ? {...s, orig:{xMin:b.xMin,xMax:b.xMax,zMin:b.zMin,zMax:b.zMax}} : {...s,orig:null};
+      }
       return {...s, orig:null};
     }),
   };
@@ -698,6 +826,9 @@ function _applyMoveDelta(dx, dz) {
       const d=ES.decoratives.find(d=>d.id===s.id); if(d) { d.x=s.orig.x+dx; d.z=s.orig.z+dz; }
     } else if (s.kind==='light') {
       const l=ES.lights.find(l=>l.id===s.id); if(l) { l.x=s.orig.x+dx; l.z=s.orig.z+dz; }
+    } else if (s.kind==='brush') {
+      const b=ES.brushes.find(b=>b.id===s.id);
+      if(b) { b.xMin=s.orig.xMin+dx; b.xMax=s.orig.xMax+dx; b.zMin=s.orig.zMin+dz; b.zMax=s.orig.zMax+dz; }
     }
   });
   rebuildLevel();
@@ -740,6 +871,7 @@ function _finishMarquee(cssStart, cssEnd, vp, additive) {
   ES.decoratives.forEach(d => { if(inMarquee(d.x,d.y||0.5,d.z)) push('decor',d.id); });
   ES.lights.forEach(l => { if(inMarquee(l.x,l.y||2,l.z)) push('light',l.id); });
   ES.elevatedTiles.forEach(et => { if(inMarquee(et.x,et.elevation,et.z)) push('elevated',`${et.x},${et.z}`); });
+  ES.brushes.forEach(b => { const cx=(b.xMin+b.xMax)/2, cy=(b.yMin+b.yMax)/2, cz=(b.zMin+b.zMax)/2; if(inMarquee(cx,cy,cz)) push('brush',b.id); });
 
   ES.selection=newSel;
   _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
@@ -760,6 +892,9 @@ function _moveSelection(dx, dz) {
       const d=ES.decoratives.find(d=>d.id===s.id); if(d) { d.x+=dx; d.z+=dz; }
     } else if (s.kind==='light') {
       const l=ES.lights.find(l=>l.id===s.id); if(l) { l.x+=dx; l.z+=dz; }
+    } else if (s.kind==='brush') {
+      const b=ES.brushes.find(b=>b.id===s.id);
+      if(b) { b.xMin+=dx; b.xMax+=dx; b.zMin+=dz; b.zMax+=dz; }
     }
   });
   rebuildLevel();
@@ -782,6 +917,9 @@ function _duplicateSelection() {
     } else if (s.kind==='light') {
       const l=JSON.parse(JSON.stringify(ES.lights.find(x=>x.id===s.id))); if(!l) return;
       l.id=_nextId('light'); l.x+=2; ES.lights.push(l); newSel.push({kind:'light',id:l.id});
+    } else if (s.kind==='brush') {
+      const b=JSON.parse(JSON.stringify(ES.brushes.find(x=>x.id===s.id))); if(!b) return;
+      b.id=_nextId('brush'); b.xMin+=2; b.xMax+=2; ES.brushes.push(b); newSel.push({kind:'brush',id:b.id});
     }
   });
   ES.selection=newSel;
@@ -793,13 +931,17 @@ function _pushUndo() {
   ES.undoStack.push(JSON.stringify({
     rooms:ES.rooms, elevatedTiles:ES.elevatedTiles, decoratives:ES.decoratives,
     lights:ES.lights, portals:ES.portals, playerStart:ES.playerStart,
-    standaloneTiles:ES.standaloneTiles, selection:ES.selection,
+    standaloneTiles:ES.standaloneTiles, brushes:ES.brushes, navMesh:ES.navMesh,
+    selection:ES.selection,
   }));
   if (ES.undoStack.length>50) ES.undoStack.shift();
 }
 function _undo() {
   if (!ES.undoStack.length) return;
-  const snap=JSON.parse(ES.undoStack.pop()); Object.assign(ES,snap);
+  const snap=JSON.parse(ES.undoStack.pop());
+  Object.assign(ES,snap);
+  if (!ES.brushes)  ES.brushes=[];
+  if (!ES.navMesh)  ES.navMesh=[];
   rebuildLevel(); _showPropsForSelection(); _setStatus('Undo');
 }
 function _deleteSelected() {
@@ -811,6 +953,7 @@ function _deleteSelected() {
     else if(s.kind==='light') ES.lights=ES.lights.filter(l=>l.id!==s.id);
     else if(s.kind==='standalone') ES.standaloneTiles=ES.standaloneTiles.filter(t=>t.id!==s.id);
     else if(s.kind==='elevated') { const [x,z]=s.id.split(',').map(Number); ES.elevatedTiles=ES.elevatedTiles.filter(e=>!(e.x===x&&e.z===z)); }
+    else if(s.kind==='brush') ES.brushes=ES.brushes.filter(b=>b.id!==s.id);
   });
   selClear(); rebuildLevel(); _showPropsForSelection();
 }
@@ -859,7 +1002,7 @@ document.addEventListener('pointerlockchange', () => {
   } else {
     _heldKeys.clear();
     canvas.style.cursor = ES.tool==='select' ? 'default' : 'crosshair';
-    _setStatus('Ready  ·  S=Select  R=Room  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  ·  Z=fly  X=reset cam');
+    _setStatus('Ready  ·  S=Select  R=Room  B=Brush  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  ·  Z=fly  X=reset cam');
   }
 });
 
@@ -876,6 +1019,7 @@ function _showPropsForSelection() {
     else if(kind==='standalone') _showProps('standalone', ES.standaloneTiles.find(s=>s.id===id));
     else if(kind==='decor')    _showProps('decor',      ES.decoratives.find(d=>d.id===id));
     else if(kind==='light')    _showProps('light',      ES.lights.find(l=>l.id===id));
+    else if(kind==='brush')    _showBrushProps(ES.brushes.find(b=>b.id===id));
     return;
   }
   // Multi-select → batch editor
@@ -887,6 +1031,7 @@ function _showPropsForSelection() {
     else if(s.kind==='decor')    data=ES.decoratives.find(d=>d.id===s.id);
     else if(s.kind==='light')    data=ES.lights.find(l=>l.id===s.id);
     else if(s.kind==='elevated') { const [x,z]=s.id.split(',').map(Number); data=ES.elevatedTiles.find(e=>e.x===x&&e.z===z); }
+    else if(s.kind==='brush')    data=ES.brushes.find(b=>b.id===s.id);
     return data?{kind:s.kind,data}:null;
   }).filter(Boolean);
   _showBatchProps(kinds,items,n);
@@ -920,6 +1065,9 @@ function _showBatchProps(kinds, items, n) {
     } else if(kind==='elevated'){
       html+=bnum('Elevation','bm-elev','elevation',0.3);
       html+=bsel('Type','bm-type','type',['step','platform']);
+    } else if(kind==='brush'){
+      html+=bnum('Y Min','bm-ymin','yMin',0.1);
+      html+=bnum('Y Max','bm-ymax','yMax',0.1);
     }
   } else {
     html+=`<p class="hint" style="margin-top:4px">Mixed types.</p>`;
@@ -977,6 +1125,7 @@ function _showBatchProps(kinds, items, n) {
     else if(kind==='decor'){ bBC('bm-color','color'); bBN('bm-w','w'); bBN('bm-h','h'); bBN('bm-d','d'); }
     else if(kind==='light'){ bBC('bm-color','color'); bBN('bm-int','intensity'); bBN('bm-dist','distance'); }
     else if(kind==='elevated'){ bBN('bm-elev','elevation'); bBS('bm-type','type'); }
+    else if(kind==='brush'){ bBN('bm-ymin','yMin'); bBN('bm-ymax','yMax'); }
   } else {
     bBN('bm-elev','elevation');
   }
@@ -1035,6 +1184,7 @@ function _refreshLayersList() {
   const row=(kind,id,icon,name,sub)=>`<div class="layer-item${selContains(kind,id)?' selected':''}" data-kind="${kind}" data-id="${id}"><span class="layer-icon">${icon}</span><span class="layer-name">${name}</span><span class="layer-kind">${sub}</span></div>`;
   const rows=[];
   ES.rooms.forEach(r=>rows.push(row('room',r.id,'▣',r.id,r.type)));
+  ES.brushes.forEach(b=>rows.push(row('brush',b.id,'⬛',b.id,'brush')));
   ES.elevatedTiles.forEach(et=>{ const k=`${et.x},${et.z}`; rows.push(row('elevated',k,'▲',`(${et.x},${et.z})`,et.type)); });
   ES.standaloneTiles.forEach(st=>rows.push(row('standalone',st.id,'◻',st.id,'tile')));
   ES.decoratives.forEach(d=>rows.push(row('decor',d.id,'□',d.id,'decor')));
@@ -1060,7 +1210,7 @@ document.getElementById('tool-buttons').querySelectorAll('.tool-btn').forEach(bt
     document.querySelectorAll('.tool-btn').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     ES.tool=btn.dataset.tool;
-    _setStatus({select:'Select — click / Ctrl+click / drag marquee in any ortho view  ·  drag room to move  ·  arrow keys to nudge',room:'Room — drag rectangle in TOP view',tile:'Tile — click TOP view to place  ·  drag to move when selected',elevated:'Elevated — click tile in TOP view',lava:'Lava — click to toggle lava on room tiles',decor:'Decor — click TOP view',light:'Light — click TOP view',spawn:'Spawn — click TOP view'}[ES.tool]||ES.tool);
+    _setStatus({select:'Select — click / Ctrl+click / drag marquee in any ortho view  ·  drag to move  ·  arrow keys to nudge',room:'Room — drag rectangle in TOP view',brush:'Brush — drag rectangle in TOP view  ·  per-face color/nodraw',tile:'Tile — click TOP view to place  ·  drag to move when selected',elevated:'Elevated — click tile in TOP view',lava:'Lava — click to toggle lava on room tiles',decor:'Decor — click TOP view',light:'Light — click TOP view',spawn:'Spawn — click TOP view'}[ES.tool]||ES.tool);
     canvas.style.cursor=ES.tool==='select'?'default':'crosshair';
   });
 });
@@ -1079,7 +1229,7 @@ window.addEventListener('keydown',e=>{
   if(_flyMode) return;
 
   // Tool shortcuts
-  const map={s:'select',r:'room',t:'tile',e:'elevated',v:'lava',d:'decor',l:'light',p:'spawn'};
+  const map={s:'select',r:'room',b:'brush',t:'tile',e:'elevated',v:'lava',d:'decor',l:'light',p:'spawn'};
   if(map[e.key.toLowerCase()]) document.querySelector(`[data-tool="${map[e.key.toLowerCase()]}"]`)?.click();
   if(e.key==='Delete'||e.key==='Backspace') _deleteSelected();
   if(e.ctrlKey&&e.key.toLowerCase()==='z') { e.preventDefault(); _undo(); }
@@ -1163,6 +1313,132 @@ document.getElementById('ed-ok').addEventListener('click',()=>{
   elevDialog.classList.add('hidden'); _pendingElev=null; _setStatus(`Elevated tile (${x},${z}) elev=${elev}`);
 });
 
+// ── Brush dialog ──────────────────────────────────────────────────────────────
+const brushDialog = document.getElementById('brush-dialog');
+let _pendingBrushBounds = null;
+
+function _openBrushDialog(x0, x1, z0, z1) {
+  _pendingBrushBounds = {x0, x1, z0, z1};
+  document.getElementById('bd-id').value = _nextId('brush');
+  document.getElementById('bd-bounds-text').textContent = `X ${x0}→${x1}  Z ${z0}→${z1}`;
+  document.getElementById('bd-ymin').value = '0';
+  document.getElementById('bd-ymax').value = '0.3';
+  document.getElementById('bd-walkable').checked = true;
+  // Reset face colours to defaults
+  const defs={py:'#606060',ny:'#404040',px:'#505050',nx:'#505050',pz:'#505050',nz:'#505050'};
+  Object.keys(defs).forEach(fk=>{
+    const ci=document.getElementById(`bd-${fk}-col`); if(ci) ci.value=defs[fk];
+    const ni=document.getElementById(`bd-${fk}-nd`);  if(ni) ni.checked=(fk==='ny');
+  });
+  brushDialog.classList.remove('hidden');
+}
+
+document.getElementById('bd-cancel').addEventListener('click', () => {
+  brushDialog.classList.add('hidden'); _pendingBrushBounds = null;
+});
+
+document.getElementById('bd-create').addEventListener('click', () => {
+  if (!_pendingBrushBounds) return;
+  const {x0, x1, z0, z1} = _pendingBrushBounds;
+  const id   = document.getElementById('bd-id').value || _nextId('brush');
+  const yMin = parseFloat(document.getElementById('bd-ymin').value) || 0;
+  const yMax = parseFloat(document.getElementById('bd-ymax').value) || 0.3;
+  const walkable = document.getElementById('bd-walkable').checked;
+  const faces = {};
+  FACE_ORDER.forEach(fk => {
+    const col = parseInt((document.getElementById(`bd-${fk}-col`)?.value||'#808080').replace('#',''), 16);
+    const nd  = document.getElementById(`bd-${fk}-nd`)?.checked || false;
+    faces[fk] = { color: col, nodraw: nd };
+  });
+  const brush = { id, xMin:x0, xMax:x1, zMin:z0, zMax:z1, yMin, yMax, walkable, faces };
+  _pushUndo();
+  ES.brushes.push(brush);
+  rebuildLevel();
+  selSet('brush', brush.id);
+  _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
+  brushDialog.classList.add('hidden'); _pendingBrushBounds = null;
+  _setStatus(`Brush "${brush.id}" created  (${x1-x0+1}×${(yMax-yMin).toFixed(2)}×${z1-z0+1})`);
+});
+
+// ── Brush properties panel ────────────────────────────────────────────────────
+function _showBrushProps(brush) {
+  if (!brush) { propsContent.innerHTML='<p class="hint">Data not found.</p>'; return; }
+  const _hex = c => '#'+((c||0x808080)>>>0).toString(16).padStart(6,'0');
+  let faceRows = FACE_ORDER.map(fk => {
+    const f = (brush.faces||{})[fk] || {};
+    const col = _hex(f.color??0x808080);
+    const nd  = f.nodraw ? ' checked' : '';
+    const isSelFace = _selectedFace?.brushId===brush.id && _selectedFace?.faceKey===fk;
+    return `<div class="face-row${isSelFace?' sel-face':''}" data-face="${fk}">
+      <span class="face-lbl">${FACE_LABEL[fk]}</span>
+      <input type="color" id="bp-${fk}-col" value="${col}">
+      <label class="nodraw-lbl"><input type="checkbox" id="bp-${fk}-nd"${nd}> ND</label>
+    </div>`;
+  }).join('');
+
+  const walkChk = brush.walkable ? ' checked' : '';
+  propsContent.innerHTML = `
+    <div class="prop-heading">Brush</div>
+    ${_tr('ID','bp-id',brush.id)}
+    ${_tn('xMin','bp-xmin',brush.xMin)}${_tn('xMax','bp-xmax',brush.xMax)}
+    ${_tn('zMin','bp-zmin',brush.zMin)}${_tn('zMax','bp-zmax',brush.zMax)}
+    ${_tn('Y Min','bp-ymin',brush.yMin,0.1)}${_tn('Y Max','bp-ymax',brush.yMax,0.1)}
+    <div class="prop-row"><label>Walkable</label>
+      <label style="display:flex;align-items:center;gap:5px;width:auto">
+        <input type="checkbox" id="bp-walkable"${walkChk} style="width:auto">
+        <span style="font-size:11px;color:var(--text-dim)">nav mesh</span>
+      </label>
+    </div>
+    <div class="prop-separator"></div>
+    <div class="prop-heading">Faces</div>
+    <div class="face-grid">${faceRows}</div>`;
+
+  // Bind number/text fields
+  const bN=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ brush[field]=parseFloat(el.value); rebuildLevel(); _updateHandles(brush.id,'brush'); }); };
+  bN('bp-xmin','xMin'); bN('bp-xmax','xMax'); bN('bp-zmin','zMin'); bN('bp-zmax','zMax');
+  bN('bp-ymin','yMin'); bN('bp-ymax','yMax');
+  document.getElementById('bp-id')?.addEventListener('change', e => { brush.id=e.target.value; rebuildLevel(); _refreshLayersList(); });
+  document.getElementById('bp-walkable')?.addEventListener('change', e => { brush.walkable=e.target.checked; });
+
+  // Bind face color + nodraw
+  FACE_ORDER.forEach(fk => {
+    const colEl = document.getElementById(`bp-${fk}-col`);
+    const ndEl  = document.getElementById(`bp-${fk}-nd`);
+    if (!brush.faces) brush.faces={};
+    if (!brush.faces[fk]) brush.faces[fk]={color:0x808080,nodraw:false};
+    colEl?.addEventListener('change', () => {
+      brush.faces[fk].color = parseInt(colEl.value.replace('#',''), 16);
+      rebuildLevel();
+    });
+    ndEl?.addEventListener('change', () => {
+      brush.faces[fk].nodraw = ndEl.checked;
+      rebuildLevel();
+    });
+  });
+
+  // Face row click → highlight that face
+  propsContent.querySelectorAll('.face-row').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.target.tagName==='INPUT') return; // let the input handle itself
+      _selectedFace = { brushId: brush.id, faceKey: row.dataset.face };
+      _showBrushProps(brush); // re-render to show highlight
+    });
+  });
+}
+
+// ── Nav / Compile toolbar buttons ─────────────────────────────────────────────
+document.getElementById('btn-compile-nav').addEventListener('click', () => {
+  _compileNavMesh();
+});
+
+document.getElementById('btn-nav-toggle').addEventListener('click', function () {
+  _showNavMesh = !_showNavMesh;
+  this.classList.toggle('nav-active', _showNavMesh);
+  if (_showNavMesh && !ES.navMesh.length) _compileNavMesh();
+  else _buildNavOverlay();
+  _setStatus(_showNavMesh ? `Nav overlay ON — ${ES.navMesh.length} tile(s)` : 'Nav overlay OFF');
+});
+
 // ── Metadata ──────────────────────────────────────────────────────────────────
 document.getElementById('meta-name').addEventListener('change',e=>ES.levelName=e.target.value);
 document.getElementById('meta-id').addEventListener('change',e=>ES.levelId=e.target.value);
@@ -1172,7 +1448,11 @@ document.getElementById('meta-spawnz').addEventListener('change',e=>{ ES.playerS
 
 // ── Export / Import ───────────────────────────────────────────────────────────
 function _serialize() {
-  const d={id:ES.levelId,name:ES.levelName,stepHeight:ES.stepHeight,playerStart:ES.playerStart,rooms:ES.rooms,elevatedTiles:ES.elevatedTiles,decoratives:ES.decoratives,lights:ES.lights,portals:ES.portals};
+  // Always bake the nav mesh on export so it's available to the game engine
+  _compileNavMesh();
+  const d={id:ES.levelId,name:ES.levelName,stepHeight:ES.stepHeight,playerStart:ES.playerStart,
+    rooms:ES.rooms,elevatedTiles:ES.elevatedTiles,decoratives:ES.decoratives,lights:ES.lights,
+    portals:ES.portals,brushes:ES.brushes,navMesh:ES.navMesh};
   return `// ─── ${d.name} ────\n(function () {\n  window.LEVELS = window.LEVELS || {};\n  window.LEVELS[${JSON.stringify(d.id)}] = ${JSON.stringify(d,null,2)};\n}());`;
 }
 document.getElementById('btn-export').addEventListener('click',()=>{document.getElementById('export-text').value=_serialize();document.getElementById('export-modal').classList.remove('hidden');});
@@ -1189,7 +1469,7 @@ document.getElementById('btn-do-import').addEventListener('click',()=>{
 document.getElementById('btn-load-lvl1').addEventListener('click',()=>{ if(!window.LEVELS?.level1){_setStatus('level1.js not loaded');return;} _loadLevel(window.LEVELS.level1); _setStatus('Loaded level1'); });
 document.getElementById('btn-new').addEventListener('click',()=>{
   if(!confirm('Clear current level?')) return;
-  ES.rooms=[]; ES.elevatedTiles=[]; ES.decoratives=[]; ES.lights=[]; ES.portals=[]; ES.standaloneTiles=[]; selClear();
+  ES.rooms=[]; ES.elevatedTiles=[]; ES.decoratives=[]; ES.lights=[]; ES.portals=[]; ES.standaloneTiles=[]; ES.brushes=[]; ES.navMesh=[]; selClear();
   ES.levelId='level_new'; ES.levelName='New Level'; ES.stepHeight=0.3; ES.playerStart={x:0,z:0};
   ['meta-name','meta-id','meta-steph','meta-spawnx','meta-spawnz'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value={['meta-name']:'New Level',['meta-id']:'level_new',['meta-steph']:'0.3',['meta-spawnx']:'0',['meta-spawnz']:'0'}[id]||''; });
   rebuildLevel(); _showPropsForSelection(); _setStatus('New level');
@@ -1197,7 +1477,8 @@ document.getElementById('btn-new').addEventListener('click',()=>{
 function _loadLevel(lvl) {
   ES.levelId=lvl.id||'level1'; ES.levelName=lvl.name||'Imported'; ES.stepHeight=lvl.stepHeight||0.3;
   ES.playerStart=lvl.playerStart||{x:0,z:0}; ES.rooms=lvl.rooms||[]; ES.elevatedTiles=lvl.elevatedTiles||[];
-  ES.decoratives=lvl.decoratives||[]; ES.lights=lvl.lights||[]; ES.portals=lvl.portals||[]; ES.standaloneTiles=[]; selClear();
+  ES.decoratives=lvl.decoratives||[]; ES.lights=lvl.lights||[]; ES.portals=lvl.portals||[];
+  ES.standaloneTiles=[]; ES.brushes=lvl.brushes||[]; ES.navMesh=lvl.navMesh||[]; selClear();
   document.getElementById('meta-name').value=ES.levelName; document.getElementById('meta-id').value=ES.levelId;
   document.getElementById('meta-steph').value=ES.stepHeight; document.getElementById('meta-spawnx').value=ES.playerStart.x; document.getElementById('meta-spawnz').value=ES.playerStart.z;
   rebuildLevel(); _showPropsForSelection();
@@ -1236,5 +1517,5 @@ function animate() {
 animate();
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-_setStatus('Ready  ·  S=Select  R=Room  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  ·  Z=fly  X=reset cam');
+_setStatus('Ready  ·  S=Select  R=Room  B=Brush  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  ·  Z=fly  X=reset cam');
 rebuildLevel();

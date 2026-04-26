@@ -108,6 +108,7 @@ const tileMeshes     = [];   // flat list used by the hover raycaster
 const wallData       = [];   // { mesh, x, z } — rebuilt each level load
 const decorativeMeshes = []; // non-tile scene objects added per level
 const levelLights    = [];   // [{ light: THREE.PointLight, pulse? }]
+const brushMeshes    = [];   // Hammer-style solid brushes (multi-material)
 
 const tileGeom = new THREE.BoxGeometry(1 - TILE_GAP, TILE_THICKNESS, 1 - TILE_GAP);
 
@@ -286,6 +287,33 @@ function _lvlBuildLight(def) {
   levelLights.push({ light, pulse: def.pulse || null });
 }
 
+// BoxGeometry face-group order in Three.js r128: px nx py ny pz nz
+const _BRUSH_FACE_ORDER = ['px','nx','py','ny','pz','nz'];
+function _lvlBuildBrush(brush) {
+  const w = (brush.xMax - brush.xMin) + 1;
+  const h = brush.yMax - brush.yMin;
+  const d = (brush.zMax - brush.zMin) + 1;
+  if (h <= 0) return;
+  const geo  = new THREE.BoxGeometry(w, h, d);
+  const mats = _BRUSH_FACE_ORDER.map(fk => {
+    const f = (brush.faces || {})[fk] || {};
+    if (f.nodraw) return new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0, depthWrite: false });
+    const mat = new THREE.MeshLambertMaterial({ color: f.color ?? 0x808080 });
+    return mat;
+  });
+  const mesh = new THREE.Mesh(geo, mats);
+  mesh.position.set(
+    (brush.xMin + brush.xMax) / 2,
+    (brush.yMin + brush.yMax) / 2,
+    (brush.zMin + brush.zMax) / 2
+  );
+  mesh.castShadow   = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  brushMeshes.push(mesh);
+  tileMeshes.push(mesh); // include in hover raycaster
+}
+
 function tearDownLevel() {
   cancelPathfind();
   hoveredTile    = null;
@@ -293,6 +321,7 @@ function tearDownLevel() {
   hoverHighlight.scale.set(1, 1, 1);
   hoverHighlight.visible = false;
   // path viz cleared via cancelPathfind → _clearAllViz
+  for (const m of brushMeshes)        scene.remove(m);   brushMeshes.length = 0;
   for (const m of tileMeshes)         scene.remove(m);   tileMeshes.length = 0;
   for (const wd of wallData)          scene.remove(wd.mesh); wallData.length = 0;
   for (const m of decorativeMeshes)   scene.remove(m);   decorativeMeshes.length = 0;
@@ -315,6 +344,22 @@ function buildLevel(data) {
   _lvlGenerateWalls();
   for (const def of (data.decoratives  || [])) _lvlBuildDecorativeMesh(def);
   for (const def of (data.lights       || [])) _lvlBuildLight(def);
+  for (const b   of (data.brushes      || [])) _lvlBuildBrush(b);
+
+  // Stamp baked nav mesh — walkable brush top-faces override/add tileMap entries
+  for (const cell of (data.navMesh || [])) {
+    if (!tileMap[cell.x]) tileMap[cell.x] = {};
+    if (!tileMap[cell.x][cell.z]) {
+      // Only create entry if the tile doesn't already exist (rooms take priority for mesh)
+      tileMap[cell.x][cell.z] = { walkable: true, type: 'brush', elevation: cell.elevation };
+    } else {
+      // Update elevation if the baked nav cell is higher (brush sits on top)
+      if (cell.elevation > (tileMap[cell.x][cell.z].elevation || 0)) {
+        tileMap[cell.x][cell.z].elevation = cell.elevation;
+      }
+      tileMap[cell.x][cell.z].walkable = true;
+    }
+  }
 
   // Portal tiles — store metadata so tryMove can trigger transitions
   for (const p of (data.portals || [])) {

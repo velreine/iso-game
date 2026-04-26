@@ -482,6 +482,39 @@ select {
   padding-right: 20px !important;
 }
 
+/* ── Brush face grid ──────────────────────────────────────────────────────── */
+.face-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  padding: 2px 8px 6px;
+}
+.face-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.face-row:hover { background: var(--bg3); }
+.face-row.sel-face { border-color: var(--accent); background: var(--tool-act); }
+.face-lbl { font-size: 10px; color: var(--text-dim); flex: 1; white-space: nowrap; }
+.face-row input[type="color"] {
+  width: 28px; height: 18px; padding: 1px 2px;
+  border-radius: 2px; border: 1px solid var(--input-bd);
+  background: var(--input-bg); cursor: pointer; flex-shrink: 0;
+}
+.nodraw-lbl {
+  display: flex; align-items: center; gap: 2px;
+  font-size: 9px; color: var(--text-hint); flex-shrink: 0; cursor: pointer;
+}
+.nodraw-lbl input[type="checkbox"] { width: auto; cursor: pointer; }
+
+/* Nav mesh active indicator */
+#btn-nav-toggle.nav-active { background: #1a3a1a; border-color: #44cc44; color: #44ff88; }
+
 /* ── Misc utils ───────────────────────────────────────────────────────────── */
 .prop-separator {
   height: 1px;

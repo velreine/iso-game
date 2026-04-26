@@ -6,6 +6,28 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.7] - 2026-04-26
+### Added
+- **Brush tool** (`B` key): draw arbitrary-size solid boxes in the TOP view — each brush has independent Y min/max, a walkable toggle, and per-face colour/nodraw settings
+  - Per-face editor: click any of the 6 face rows (Top, Bottom, ±X, ±Z) to select it; assign colour or mark as NoDraw (invisible/transparent)
+  - Brushes are fully integrated into the editor pipeline: resize handles (including Y min/max in front/side views), move-drag, arrow-key nudge, Ctrl+D duplicate, Delete, marquee selection, undo/redo, layers list
+- **Nav mesh system**: walkable brush footprints + rooms + standalone tiles are divided into integer tiles to form a tile-based nav mesh
+  - `⬡ Compile Nav` button: bakes the nav mesh from current walkable geometry; status bar shows tile count
+  - `⬡ Show Nav` toggle: overlays semi-transparent green planes on each nav cell in all viewports
+  - Nav mesh is **auto-compiled on export** and written into the level file as `navMesh: [{x, z, elevation}]`
+  - On import/load, previously baked nav meshes are restored without recompilation
+- **Brush rendering in game.js**: `_lvlBuildBrush()` renders multi-material BoxGeometry for each brush; NoDraw faces are fully transparent; brush meshes participate in the hover raycaster
+- **Nav mesh stamped into tileMap** at load time: baked nav cells are written into `tileMap` so the game's existing A* pathfinder can walk across brush surfaces
+
+### Changed
+- Export now always triggers a nav compile so the baked nav is never stale
+- `btn-new` and `loadLevel` both clear/restore brush + navMesh state
+- Undo stack now captures brushes and navMesh
+
+## [1.4.6] - 2026-04-26
+### Fixed
+- **Grid alignment**: all three orthographic grids (top XZ, front XY, side ZY) were shifted by 0.5 units in their active axes so grid lines land on tile *boundaries* rather than tile *centres* — rooms, tiles, preview boxes, and selection outlines now sit cleanly inside grid cells
+
 ## [1.4.5] - 2026-04-26
 ### Added
 - **Fly mode** (`Z` key): toggles pointer-lock FPS camera control in the 3D viewport — cursor hides and locks; mouse look steers the camera; WASD moves in the direction the camera faces (including up/down); Q/E raise/lower; `Z` again exits
