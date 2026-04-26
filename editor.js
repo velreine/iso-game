@@ -142,8 +142,15 @@ const topCam   = new THREE.OrthographicCamera(-20, 20, 20, -20, 0.1, 500);
 const frontCam = new THREE.OrthographicCamera(-20, 20, 20, -20, 0.1, 500);
 const sideCam  = new THREE.OrthographicCamera(-20, 20, 20, -20, 0.1, 500);
 
-let perspYaw = -Math.PI * 0.75, perspPitch = -0.7;
-let perspPos = new THREE.Vector3(-14, 18, -14);
+// Isometric home — mirrors the game camera exactly (CAM_HEIGHT=18, angle=π/4, looking at origin)
+// pos (18,18,18) → dir toward (0,0,0) → yaw = -¾π, pitch = -asin(1/√3) ≈ -0.6155
+const ISO_YAW   = -Math.PI * 0.75;
+const ISO_PITCH = -Math.asin(1 / Math.sqrt(3));   // ≈ -0.6155 rad  (~35.26°)
+const ISO_POS   = new THREE.Vector3(18, 18, 18);
+
+let perspYaw   = ISO_YAW;
+let perspPitch = ISO_PITCH;
+let perspPos   = ISO_POS.clone();
 let orthoZoom = 20;
 let topPanX = 0, topPanZ = 0, frontPanX = 0, frontPanY = 10, sidePanZ = 0, sidePanY = 10;
 
@@ -400,6 +407,10 @@ let mouseButtons = { left:false, right:false, middle:false };
 let lastMouse    = { x:0, y:0 };
 let activeVP     = null;
 
+// Fly-cam
+let _flyMode    = false;
+const _heldKeys = new Set();   // keys currently held in fly mode
+
 // Handle resize drag
 let _dragHandle = null;   // { type, room }
 
@@ -433,6 +444,14 @@ window.addEventListener('mouseup', e => {
 });
 
 window.addEventListener('mousemove', e => {
+  if (_flyMode) {
+    // Pointer locked — raw deltas drive look, cursor is hidden
+    const mx=e.movementX||0, my=e.movementY||0;
+    perspYaw  -=mx*0.002;
+    perspPitch=Math.max(-1.4,Math.min(1.4,perspPitch-my*0.002));
+    _applyPerspCam();
+    return;
+  }
   const rect=canvas.getBoundingClientRect();
   const cx=e.clientX-rect.left, cy=e.clientY-rect.top;
   const dx=cx-lastMouse.x, dy=cy-lastMouse.y;
@@ -796,6 +815,54 @@ function _deleteSelected() {
   selClear(); rebuildLevel(); _showPropsForSelection();
 }
 
+// ── Fly-cam helpers ───────────────────────────────────────────────────────────
+function _toggleFlyMode() {
+  if (document.pointerLockElement === canvas) {
+    document.exitPointerLock();
+  } else {
+    canvas.requestPointerLock();
+  }
+}
+
+function _resetIsoCamera() {
+  perspYaw   = ISO_YAW;
+  perspPitch = ISO_PITCH;
+  perspPos.copy(ISO_POS);
+  _applyPerspCam();
+  _setStatus('Camera reset  ·  Z=fly mode  X=reset');
+}
+
+// Called every animation frame — smooth WASD movement while keys are held
+function _flyTick() {
+  if (!_flyMode) return;
+  const spd = 0.15;
+  const fwd  = new THREE.Vector3(
+    Math.cos(perspPitch)*Math.sin(perspYaw),
+    Math.sin(perspPitch),
+    Math.cos(perspPitch)*Math.cos(perspYaw)
+  ).normalize();
+  const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0,1,0)).normalize();
+  let moved = false;
+  if (_heldKeys.has('w')) { perspPos.addScaledVector(fwd,   spd); moved=true; }
+  if (_heldKeys.has('s')) { perspPos.addScaledVector(fwd,  -spd); moved=true; }
+  if (_heldKeys.has('a')) { perspPos.addScaledVector(right, -spd); moved=true; }
+  if (_heldKeys.has('d')) { perspPos.addScaledVector(right,  spd); moved=true; }
+  if (_heldKeys.has('q')) { perspPos.y -= spd; moved=true; }
+  if (_heldKeys.has('e')) { perspPos.y += spd; moved=true; }
+  if (moved) _applyPerspCam();
+}
+
+document.addEventListener('pointerlockchange', () => {
+  _flyMode = document.pointerLockElement === canvas;
+  if (_flyMode) {
+    _setStatus('✈ FLY MODE  ·  WASD=move  Q/E=up/down  mouse=look  ·  Z to exit');
+  } else {
+    _heldKeys.clear();
+    canvas.style.cursor = ES.tool==='select' ? 'default' : 'crosshair';
+    _setStatus('Ready  ·  S=Select  R=Room  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  ·  Z=fly  X=reset cam');
+  }
+});
+
 // ── Property panel ────────────────────────────────────────────────────────────
 const propsContent=document.getElementById('props-content');
 
@@ -1000,6 +1067,18 @@ document.getElementById('tool-buttons').querySelectorAll('.tool-btn').forEach(bt
 
 window.addEventListener('keydown',e=>{
   if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
+  _heldKeys.add(e.key.toLowerCase());
+
+  // Z — toggle fly mode (pointer lock)
+  if(!e.ctrlKey&&e.key.toLowerCase()==='z') { e.preventDefault(); _toggleFlyMode(); return; }
+
+  // X — reset perspective camera to isometric home
+  if(!e.ctrlKey&&e.key.toLowerCase()==='x') { _resetIsoCamera(); return; }
+
+  // In fly mode WASD/QE are handled per-frame by _flyTick() — skip other shortcuts
+  if(_flyMode) return;
+
+  // Tool shortcuts
   const map={s:'select',r:'room',t:'tile',e:'elevated',v:'lava',d:'decor',l:'light',p:'spawn'};
   if(map[e.key.toLowerCase()]) document.querySelector(`[data-tool="${map[e.key.toLowerCase()]}"]`)?.click();
   if(e.key==='Delete'||e.key==='Backspace') _deleteSelected();
@@ -1011,21 +1090,9 @@ window.addEventListener('keydown',e=>{
   if(e.key==='ArrowRight') { e.preventDefault(); _moveSelection(1,0); }
   if(e.key==='ArrowUp')    { e.preventDefault(); _moveSelection(0,-1); }
   if(e.key==='ArrowDown')  { e.preventDefault(); _moveSelection(0,1); }
-
-  // WASD perspective fly (only when no modifier)
-  if(!e.ctrlKey&&!e.altKey) {
-    const spd=0.4;
-    const dir=new THREE.Vector3(Math.cos(perspPitch)*Math.sin(perspYaw),0,Math.cos(perspPitch)*Math.cos(perspYaw)).normalize();
-    const right=new THREE.Vector3().crossVectors(dir,new THREE.Vector3(0,1,0)).normalize();
-    if(e.key.toLowerCase()==='w') perspPos.addScaledVector(dir,spd);
-    if(e.key.toLowerCase()==='s') perspPos.addScaledVector(dir,-spd);
-    if(e.key.toLowerCase()==='a') perspPos.addScaledVector(right,-spd);
-    if(e.key.toLowerCase()==='d') perspPos.addScaledVector(right,spd);
-    if(e.key==='q') perspPos.y-=spd;
-    if(e.key==='e') perspPos.y+=spd;
-    _applyPerspCam();
-  }
 });
+
+window.addEventListener('keyup',e=>{ _heldKeys.delete(e.key.toLowerCase()); });
 
 // Dup button in panel
 document.getElementById('btn-dup-obj').addEventListener('click', _duplicateSelection);
@@ -1159,6 +1226,7 @@ function _renderVP(name, cam, isLive) {
 }
 function animate() {
   requestAnimationFrame(animate);
+  _flyTick();
   _renderVP('persp',perspCam,true);
   _renderVP('top',  topCam,  false);
   _renderVP('front',frontCam,false);
@@ -1168,5 +1236,5 @@ function animate() {
 animate();
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-_setStatus('Ready  ·  S=Select  R=Room  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn');
+_setStatus('Ready  ·  S=Select  R=Room  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  ·  Z=fly  X=reset cam');
 rebuildLevel();

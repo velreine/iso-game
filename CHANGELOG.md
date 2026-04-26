@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.5] - 2026-04-26
+### Added
+- **Fly mode** (`Z` key): toggles pointer-lock FPS camera control in the 3D viewport — cursor hides and locks; mouse look steers the camera; WASD moves in the direction the camera faces (including up/down); Q/E raise/lower; `Z` again exits
+- **Isometric home camera**: editor now spawns with the perspective camera exactly matching the game's view — position `(18,18,18)`, yaw `−¾π`, pitch `−asin(1/√3)` (≈ 35.3°), looking at the world origin
+- **Camera reset** (`X` key): snaps the perspective camera back to the isometric home position and angle at any time
+
+### Changed
+- WASD no longer fires outside fly mode (previously always active); right-drag still rotates in non-fly mode
+- Movement in fly mode is per-frame (smooth, held-key) rather than single-step per key press
+
 ## [1.4.4] - 2026-04-25
 ### Added
 - **Batch property editing**: when 2+ items of the same kind are selected the Properties panel shows shared fields instead of the "N items selected" hint
