@@ -19,9 +19,10 @@ const ES = {
   brushes:  [],   // Hammer-style solid brushes
   navMesh:  [],   // baked nav tiles [{x,z,elevation}]
   groups:   [],   // [{id, name, collapsed, items:[{kind,id}]}]
+  entities: [],   // unified entity list [{id, entityType:'decor'|'light'|'spawn', x,y,z, ...}]
 
   // Multi-selection: array of {kind, id}
-  // kind: 'room' | 'elevated' | 'decor' | 'light' | 'standalone' | 'brush'
+  // kind: 'room' | 'elevated' | 'decor' | 'light' | 'standalone' | 'brush' | 'entity'
   selection: [],
 
   tool: 'select',
@@ -233,7 +234,7 @@ const tmSet=(x,z,d)=>{ (tileMap[x]||(tileMap[x]={}))[z]=d; };
 const tmGet=(x,z)=>tileMap[x]?.[z];
 
 // ── Geometry arrays ───────────────────────────────────────────────────────────
-let tileMeshes=[], wallMeshes=[], decorMeshes=[], lightMeshes=[], standaloneMs=[], brushMeshes=[];
+let tileMeshes=[], wallMeshes=[], decorMeshes=[], lightMeshes=[], standaloneMs=[], brushMeshes=[], entityMeshes=[];
 
 // Nav mesh overlay lives in helperScene (never wireframed)
 const navOverlayGroup = new THREE.Group();
@@ -245,19 +246,22 @@ function rebuildLevel() {
     const o=levelGroup.children[0]; levelGroup.remove(o);
     if (o.geometry) o.geometry.dispose();
   }
-  tileMeshes=[]; wallMeshes=[]; decorMeshes=[]; lightMeshes=[]; standaloneMs=[]; brushMeshes=[];
+  tileMeshes=[]; wallMeshes=[]; decorMeshes=[]; lightMeshes=[]; standaloneMs=[]; brushMeshes=[]; entityMeshes=[];
   tileMap={};
 
   ES.rooms.forEach(r => r.type==='ramp' ? _buildRampRoom(r) : _buildRoom(r));
   ES.elevatedTiles.forEach(_buildElevatedTile);
   ES.standaloneTiles.forEach(_buildStandaloneTile);
   _buildWalls();
-  ES.decoratives.forEach(_buildDecorMesh);
-  ES.lights.forEach(_buildLightHelper);
+  ES.decoratives.forEach(_buildDecorMesh);   // legacy backward compat
+  ES.lights.forEach(_buildLightHelper);       // legacy backward compat
   ES.brushes.forEach(_buildBrushMesh);
+  ES.entities.forEach(_buildEntityMesh);
   _buildNavOverlay();
 
-  spawnMesh.position.set(ES.playerStart.x, 0.4, ES.playerStart.z);
+  // Use spawn entity position if one exists, otherwise ES.playerStart
+  const _spawnEnt = ES.entities.find(e => e.entityType === 'spawn');
+  spawnMesh.position.set(_spawnEnt ? _spawnEnt.x : ES.playerStart.x, 0.4, _spawnEnt ? _spawnEnt.z : ES.playerStart.z);
   _refreshSelBoxes();
   _refreshLayersList();
   _showPropsForSelection();
@@ -444,6 +448,42 @@ function _buildLightHelper(def) {
   w.position.copy(s.position); levelGroup.add(w); lightMeshes.push(w);
 }
 
+function _buildEntityMesh(entity) {
+  if (entity.entityType === 'spawn') {
+    spawnMesh.position.set(entity.x, 0.4, entity.z);
+    return; // spawn is just a marker, no mesh in entityMeshes
+  }
+  if (entity.entityType === 'decor') {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(entity.w||1, entity.h||1, entity.d||1),
+      _mat(entity.color||0x606060)
+    );
+    mesh.position.set(entity.x, entity.y??0.5, entity.z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.userData = {kind:'entity', id:entity.id, entityType:'decor'};
+    levelGroup.add(mesh); entityMeshes.push(mesh);
+    return;
+  }
+  if (entity.entityType === 'light') {
+    const s = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18, 6, 6),
+      new THREE.MeshBasicMaterial({color: entity.color||0xffffff})
+    );
+    s.position.set(entity.x, entity.y??2, entity.z);
+    s.userData = {kind:'entity', id:entity.id, entityType:'light'};
+    levelGroup.add(s); entityMeshes.push(s);
+    // Range sphere (visual only, not selectable)
+    const w = new THREE.Mesh(
+      new THREE.SphereGeometry(entity.distance||5, 10, 6),
+      new THREE.MeshBasicMaterial({color:entity.color||0xffffff, wireframe:true, opacity:0.08, transparent:true})
+    );
+    w.position.copy(s.position);
+    w.userData = {kind:'_entityRange', id:entity.id+'_r'};
+    levelGroup.add(w); entityMeshes.push(w);
+    return;
+  }
+}
+
 // ── Selection box pool refresh ────────────────────────────────────────────────
 function _refreshSelBoxes() {
   _clearSelBoxPool();
@@ -473,6 +513,7 @@ function _findMeshById(kind, id) {
   if (kind==='standalone') return standaloneMs.find(m=>m.userData.id===id)||null;
   if (kind==='room')       return tileMeshes.find(m=>m.userData.roomId===id)||null;
   if (kind==='brush')      return brushMeshes.find(m=>m.userData.id===id)||null;
+  if (kind==='entity')     return entityMeshes.find(m=>m.userData.kind==='entity'&&m.userData.id===id)||null;
   if (kind==='elevated')   { const [x,z]=id.split(',').map(Number); return tileMeshes.find(m=>m.userData.kind==='elevated'&&m.userData.x===x&&m.userData.z===z)||null; }
   return null;
 }
@@ -538,7 +579,8 @@ function _raycastHandles(cx, cy, vp) {
 // Returns userData of first hit; for brushes also includes materialIndex for face ID
 function _raycastLevel(cx, cy, vp) {
   raycaster.setFromCamera(toClip(vp,cx,cy), _camFor(vp));
-  const hits=raycaster.intersectObjects([...tileMeshes,...decorMeshes,...lightMeshes,...brushMeshes]);
+  const selectableEnts = entityMeshes.filter(m => m.userData.kind === 'entity');
+  const hits=raycaster.intersectObjects([...tileMeshes,...decorMeshes,...lightMeshes,...brushMeshes,...selectableEnts]);
   if (!hits.length) return null;
   const hit=hits[0];
   const ud={...hit.object.userData};
@@ -678,18 +720,10 @@ function _onLeftDown(cx, cy, ctrl) {
     }
     return;
   }
-  if (ES.tool==='tile' && vp==='top') {
-    const wp=topToWorld(cx,cy); if(wp) _placeTile(Math.round(wp.x),Math.round(wp.z)); return;
-  }
-  if (ES.tool==='lava'     && vp==='top') { _toggleLava(cx,cy); return; }
-  if (ES.tool==='elevated' && vp==='top') {
-    const wp=topToWorld(cx,cy); if(wp) _openElevDialog(Math.round(wp.x),Math.round(wp.z)); return;
-  }
-  if (ES.tool==='decor'    && vp==='top') {
-    const wp=topToWorld(cx,cy); if(wp) _placeDecor(Math.round(wp.x),Math.round(wp.z)); return;
-  }
-  if (ES.tool==='light'    && vp==='top') {
-    const wp=topToWorld(cx,cy); if(wp) _placeLight(Math.round(wp.x),Math.round(wp.z)); return;
+  if (ES.tool==='entity' && vp==='top') {
+    const wp=topToWorld(cx,cy);
+    if(wp) _openEntityDialog(Math.round(wp.x), Math.round(wp.z));
+    return;
   }
   if (ES.tool==='nav' && vp==='top') {
     const wp=topToWorld(cx,cy); if(!wp) return;
@@ -708,29 +742,10 @@ function _onLeftDown(cx, cy, ctrl) {
     if (!_showNavMesh) { _showNavMesh=true; document.getElementById('btn-nav-toggle').classList.add('nav-active'); _buildNavOverlay(); }
     return;
   }
-  if (ES.tool==='spawn'    && vp==='top') {
-    const wp=topToWorld(cx,cy);
-    if (wp) {
-      ES.playerStart={x:Math.round(wp.x),z:Math.round(wp.z)};
-      spawnMesh.position.set(ES.playerStart.x,0.4,ES.playerStart.z);
-      document.getElementById('meta-spawnx').value=ES.playerStart.x;
-      document.getElementById('meta-spawnz').value=ES.playerStart.z;
-      _setStatus(`Spawn → (${ES.playerStart.x}, ${ES.playerStart.z})`);
-    }
-  }
 }
 
 // ── Left-up ───────────────────────────────────────────────────────────────────
 function _onLeftUp(ctrl) {
-  // Finish room draw
-  if (ES.tool==='room' && ES.drawing) {
-    ES.drawing=false; _showDrawRect(false); previewBox.visible=false;
-    if (ES.drawStart&&ES.drawEnd) {
-      const x0=Math.min(ES.drawStart.x,ES.drawEnd.x), x1=Math.max(ES.drawStart.x,ES.drawEnd.x);
-      const z0=Math.min(ES.drawStart.z,ES.drawEnd.z), z1=Math.max(ES.drawStart.z,ES.drawEnd.z);
-      if (x1>=x0&&z1>=z0) _openRoomDialog(x0,x1,z0,z1);
-    }
-  }
   // Finish brush draw
   if (ES.tool==='brush' && ES.drawing) {
     ES.drawing=false; _showDrawRect(false); previewBox.visible=false;
@@ -871,6 +886,10 @@ function _startMoveDrag(worldPos) {
         const b=ES.brushes.find(b=>b.id===s.id);
         return b ? {...s, orig:{xMin:b.xMin,xMax:b.xMax,zMin:b.zMin,zMax:b.zMax}} : {...s,orig:null};
       }
+      if (s.kind==='entity') {
+        const e=ES.entities.find(e=>e.id===s.id);
+        return e ? {...s, orig:{x:e.x,z:e.z}} : {...s,orig:null};
+      }
       return {...s, orig:null};
     }),
   };
@@ -892,6 +911,8 @@ function _applyMoveDelta(dx, dz) {
     } else if (s.kind==='brush') {
       const b=ES.brushes.find(b=>b.id===s.id);
       if(b) { b.xMin=s.orig.xMin+dx; b.xMax=s.orig.xMax+dx; b.zMin=s.orig.zMin+dz; b.zMax=s.orig.zMax+dz; }
+    } else if (s.kind==='entity') {
+      const e=ES.entities.find(e=>e.id===s.id); if(e) { e.x=s.orig.x+dx; e.z=s.orig.z+dz; }
     }
   });
   rebuildLevel();
@@ -935,6 +956,7 @@ function _finishMarquee(cssStart, cssEnd, vp, additive) {
   ES.lights.forEach(l => { if(inMarquee(l.x,l.y||2,l.z)) push('light',l.id); });
   ES.elevatedTiles.forEach(et => { if(inMarquee(et.x,et.elevation,et.z)) push('elevated',`${et.x},${et.z}`); });
   ES.brushes.forEach(b => { const cx=(b.xMin+b.xMax)/2, cy=(b.yMin+b.yMax)/2, cz=(b.zMin+b.zMax)/2; if(inMarquee(cx,cy,cz)) push('brush',b.id); });
+  ES.entities.forEach(e => { if(inMarquee(e.x, e.y??0.5, e.z)) push('entity',e.id); });
 
   ES.selection=newSel;
   _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
@@ -958,6 +980,8 @@ function _moveSelection(dx, dz) {
     } else if (s.kind==='brush') {
       const b=ES.brushes.find(b=>b.id===s.id);
       if(b) { b.xMin+=dx; b.xMax+=dx; b.zMin+=dz; b.zMax+=dz; }
+    } else if (s.kind==='entity') {
+      const e=ES.entities.find(e=>e.id===s.id); if(e) { e.x+=dx; e.z+=dz; }
     }
   });
   rebuildLevel();
@@ -983,6 +1007,9 @@ function _duplicateSelection() {
     } else if (s.kind==='brush') {
       const b=JSON.parse(JSON.stringify(ES.brushes.find(x=>x.id===s.id))); if(!b) return;
       b.id=_nextId('brush'); b.xMin+=2; b.xMax+=2; ES.brushes.push(b); newSel.push({kind:'brush',id:b.id});
+    } else if (s.kind==='entity') {
+      const e=JSON.parse(JSON.stringify(ES.entities.find(x=>x.id===s.id))); if(!e) return;
+      e.id=_nextId('entity'); e.x+=2; ES.entities.push(e); newSel.push({kind:'entity',id:e.id});
     }
   });
   ES.selection=newSel;
@@ -998,7 +1025,7 @@ function _pushUndo() {
     rooms:ES.rooms, elevatedTiles:ES.elevatedTiles, decoratives:ES.decoratives,
     lights:ES.lights, portals:ES.portals, playerStart:ES.playerStart,
     standaloneTiles:ES.standaloneTiles, brushes:ES.brushes, navMesh:ES.navMesh,
-    groups:ES.groups, selection:ES.selection,
+    groups:ES.groups, entities:ES.entities, selection:ES.selection,
   }));
   if (ES.undoStack.length>50) ES.undoStack.shift();
 }
@@ -1006,9 +1033,10 @@ function _undo() {
   if (!ES.undoStack.length) return;
   const snap=JSON.parse(ES.undoStack.pop());
   Object.assign(ES,snap);
-  if (!ES.brushes)  ES.brushes=[];
-  if (!ES.navMesh)  ES.navMesh=[];
-  if (!ES.groups)   ES.groups=[];
+  if (!ES.brushes)   ES.brushes=[];
+  if (!ES.navMesh)   ES.navMesh=[];
+  if (!ES.groups)    ES.groups=[];
+  if (!ES.entities)  ES.entities=[];
   rebuildLevel(); _showPropsForSelection(); _setStatus('Undo');
 }
 function _deleteSelected() {
@@ -1021,6 +1049,7 @@ function _deleteSelected() {
     else if(s.kind==='standalone') ES.standaloneTiles=ES.standaloneTiles.filter(t=>t.id!==s.id);
     else if(s.kind==='elevated') { const [x,z]=s.id.split(',').map(Number); ES.elevatedTiles=ES.elevatedTiles.filter(e=>!(e.x===x&&e.z===z)); }
     else if(s.kind==='brush') ES.brushes=ES.brushes.filter(b=>b.id!==s.id);
+    else if(s.kind==='entity') ES.entities=ES.entities.filter(e=>e.id!==s.id);
   });
   // Remove deleted items from any groups; prune empty groups
   ES.groups.forEach(g => {
@@ -1028,6 +1057,7 @@ function _deleteSelected() {
       switch(ref.kind) {
         case 'room':       return ES.rooms.some(r=>r.id===ref.id);
         case 'brush':      return ES.brushes.some(b=>b.id===ref.id);
+        case 'entity':     return ES.entities.some(e=>e.id===ref.id);
         case 'decor':      return ES.decoratives.some(d=>d.id===ref.id);
         case 'light':      return ES.lights.some(l=>l.id===ref.id);
         case 'standalone': return ES.standaloneTiles.some(t=>t.id===ref.id);
@@ -1101,7 +1131,7 @@ document.addEventListener('pointerlockchange', () => {
   } else {
     _heldKeys.clear();
     canvas.style.cursor = ES.tool==='select' ? 'default' : 'crosshair';
-    _setStatus('Ready  ·  S=Select  R=Room  B=Brush  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  N=Nav  ·  Z=fly  X=reset cam');
+    _setStatus('Ready  ·  S=Select  B=Brush  E=Entity  N=Nav  ·  Z=fly  X=reset cam');
   }
 });
 
@@ -1119,6 +1149,7 @@ function _showPropsForSelection() {
     else if(kind==='decor')    _showProps('decor',      ES.decoratives.find(d=>d.id===id));
     else if(kind==='light')    _showProps('light',      ES.lights.find(l=>l.id===id));
     else if(kind==='brush')    _showBrushProps(ES.brushes.find(b=>b.id===id));
+    else if(kind==='entity')   _showEntityProps(ES.entities.find(e=>e.id===id));
     return;
   }
   // Multi-select → batch editor
@@ -1131,6 +1162,7 @@ function _showPropsForSelection() {
     else if(s.kind==='light')    data=ES.lights.find(l=>l.id===s.id);
     else if(s.kind==='elevated') { const [x,z]=s.id.split(',').map(Number); data=ES.elevatedTiles.find(e=>e.x===x&&e.z===z); }
     else if(s.kind==='brush')    data=ES.brushes.find(b=>b.id===s.id);
+    else if(s.kind==='entity')   data=ES.entities.find(e=>e.id===s.id);
     return data?{kind:s.kind,data}:null;
   }).filter(Boolean);
   _showBatchProps(kinds,items,n);
@@ -1167,6 +1199,8 @@ function _showBatchProps(kinds, items, n) {
     } else if(kind==='brush'){
       html+=bnum('Y Min','bm-ymin','yMin',0.1);
       html+=bnum('Y Max','bm-ymax','yMax',0.1);
+    } else if(kind==='entity'){
+      html+=bnum('X','bm-ex','x',1)+bnum('Y','bm-ey','y',0.1)+bnum('Z','bm-ez','z',1);
     }
   } else {
     html+=`<p class="hint" style="margin-top:4px">Mixed types.</p>`;
@@ -1225,6 +1259,7 @@ function _showBatchProps(kinds, items, n) {
     else if(kind==='light'){ bBC('bm-color','color'); bBN('bm-int','intensity'); bBN('bm-dist','distance'); }
     else if(kind==='elevated'){ bBN('bm-elev','elevation'); bBS('bm-type','type'); }
     else if(kind==='brush'){ bBN('bm-ymin','yMin'); bBN('bm-ymax','yMax'); }
+    else if(kind==='entity'){ bBN('bm-ex','x'); bBN('bm-ey','y'); bBN('bm-ez','z'); }
   } else {
     bBN('bm-elev','elevation');
   }
@@ -1290,6 +1325,7 @@ function _getItemDisplay(kind, id) {
     case 'standalone': { const t=ES.standaloneTiles.find(t=>t.id===id); return t ? {icon:'◻',name:t.id,sub:'tile'} : null; }
     case 'decor':      { const d=ES.decoratives.find(d=>d.id===id);     return d ? {icon:'□',name:d.id,sub:'decor'} : null; }
     case 'light':      { const l=ES.lights.find(l=>l.id===id);          return l ? {icon:'✦',name:l.id,sub:'light'} : null; }
+    case 'entity':     { const e=ES.entities.find(e=>e.id===id);        return e ? {icon:{decor:'□',light:'✦',spawn:'⊕'}[e.entityType]||'●',name:e.id,sub:e.entityType} : null; }
     default: return null;
   }
 }
@@ -1331,6 +1367,7 @@ function _refreshLayersList() {
   const allItems = [
     ...ES.rooms.map(r=>({kind:'room',id:r.id})),
     ...ES.brushes.map(b=>({kind:'brush',id:b.id})),
+    ...ES.entities.map(e=>({kind:'entity',id:e.id})),
     ...ES.elevatedTiles.map(et=>({kind:'elevated',id:`${et.x},${et.z}`})),
     ...ES.standaloneTiles.map(st=>({kind:'standalone',id:st.id})),
     ...ES.decoratives.map(d=>({kind:'decor',id:d.id})),
@@ -1415,7 +1452,7 @@ document.getElementById('tool-buttons').querySelectorAll('.tool-btn').forEach(bt
     document.querySelectorAll('.tool-btn').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     ES.tool=btn.dataset.tool;
-    _setStatus({select:'Select — click / Ctrl+click / drag marquee in any ortho view  ·  drag to move  ·  arrow keys to nudge',room:'Room — drag rectangle in TOP view',brush:'Brush — drag rectangle in TOP view  ·  per-face color/nodraw  ·  class: solid or trigger zone',tile:'Tile — click TOP view to place  ·  drag to move when selected',elevated:'Elevated — click tile in TOP view',lava:'Lava — click to toggle lava on room tiles',decor:'Decor — click TOP view',light:'Light — click TOP view',spawn:'Spawn — click TOP view',nav:'Nav Paint — click to add cell  ·  Ctrl+click to remove  ·  Compile Nav to reset from geometry'}[ES.tool]||ES.tool);
+    _setStatus({select:'Select — click / Ctrl+click / drag marquee in any ortho view  ·  drag to move  ·  arrow keys to nudge',brush:'Brush — drag rectangle in TOP view  ·  per-face color/nodraw  ·  class: solid or trigger zone',entity:'Entity — click TOP view to place  ·  type: decor / light / spawn',nav:'Nav Paint — click to add cell  ·  Ctrl+click to remove  ·  Compile Nav to reset from geometry'}[ES.tool]||ES.tool);
     canvas.style.cursor=ES.tool==='select'?'default':'crosshair';
   });
 });
@@ -1434,7 +1471,7 @@ window.addEventListener('keydown',e=>{
   if(_flyMode) return;
 
   // Tool shortcuts
-  const map={s:'select',r:'room',b:'brush',t:'tile',e:'elevated',v:'lava',d:'decor',l:'light',p:'spawn',n:'nav'};
+  const map={s:'select',b:'brush',e:'entity',n:'nav'};
   if(!e.ctrlKey&&!e.metaKey&&map[e.key.toLowerCase()]) document.querySelector(`[data-tool="${map[e.key.toLowerCase()]}"]`)?.click();
   if(e.key==='Delete'||e.key==='Backspace') _deleteSelected();
   if(e.ctrlKey&&e.key.toLowerCase()==='z') { e.preventDefault(); _undo(); }
@@ -1444,6 +1481,7 @@ window.addEventListener('keydown',e=>{
     e.preventDefault();
     ES.rooms.forEach(r=>selAdd('room',r.id));
     ES.brushes.forEach(b=>selAdd('brush',b.id));
+    ES.entities.forEach(e=>selAdd('entity',e.id));
     ES.elevatedTiles.forEach(et=>selAdd('elevated',`${et.x},${et.z}`));
     ES.standaloneTiles.forEach(st=>selAdd('standalone',st.id));
     ES.decoratives.forEach(d=>selAdd('decor',d.id));
@@ -1498,38 +1536,7 @@ function _updateDrawRect() {
   drawRect.setAttribute('width',Math.abs(c1.x-c0.x)); drawRect.setAttribute('height',Math.abs(c1.y-c0.y));
 }
 
-// ── Room dialog ───────────────────────────────────────────────────────────────
-const roomDialog=document.getElementById('room-dialog');
-const rdType=document.getElementById('rd-type');
-let _rdPalette=[0x505060,0x585868,0x4a4a5a];
-let _pendingBounds=null;
-rdType.addEventListener('change',()=>{document.getElementById('rd-ramp-opts').classList.toggle('hidden',rdType.value!=='ramp');document.getElementById('rd-corridor-opts').classList.toggle('hidden',rdType.value!=='corridor');});
-function _openRoomDialog(x0,x1,z0,z1) { _pendingBounds={x0,x1,z0,z1}; document.getElementById('rd-bounds-text').textContent=`X ${x0}→${x1}  Z ${z0}→${z1}`; document.getElementById('rd-id').value=_nextId('room'); _renderRdPalette(); roomDialog.classList.remove('hidden'); }
-function _renderRdPalette() { const el=document.getElementById('rd-palette-list'); el.innerHTML=_rdPalette.map((c,i)=>{const h='#'+c.toString(16).padStart(6,'0');return `<span class="palette-swatch" style="background:${h}" data-idx="${i}"><span class="swatch-del">✕</span></span>`;}).join(''); el.querySelectorAll('.swatch-del').forEach(d=>d.addEventListener('click',e=>{e.stopPropagation();_rdPalette.splice(+d.parentElement.dataset.idx,1);_renderRdPalette();})); }
-document.getElementById('rd-add-color').addEventListener('click',()=>{_rdPalette.push(0x808080);_renderRdPalette();});
-document.getElementById('rd-cancel').addEventListener('click',()=>{roomDialog.classList.add('hidden');_pendingBounds=null;});
-document.getElementById('rd-create').addEventListener('click',()=>{
-  if(!_pendingBounds) return;
-  const{x0,x1,z0,z1}=_pendingBounds, type=rdType.value;
-  const room={id:document.getElementById('rd-id').value||_nextId('room'),type,tileType:document.getElementById('rd-tiletype').value||type,xMin:x0,xMax:x1,zMin:z0,zMax:z1,elevation:parseFloat(document.getElementById('rd-elevation').value)||0,palette:[..._rdPalette]};
-  if(type==='corridor') room.doorColor=parseInt(document.getElementById('rd-doorcolor').value.replace('#',''),16);
-  if(type==='ramp')     { room.elevationAxis=document.getElementById('rd-rampaxis').value; room.elevationStart=parseFloat(document.getElementById('rd-rampstart').value)||0.3; }
-  _pushUndo(); ES.rooms.push(room); rebuildLevel(); selSet('room',room.id); _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
-  roomDialog.classList.add('hidden'); _pendingBounds=null; _setStatus(`Room "${room.id}" created`);
-});
-
-// ── Elevated dialog ───────────────────────────────────────────────────────────
-const elevDialog=document.getElementById('elev-dialog'); let _pendingElev=null;
-function _openElevDialog(x,z) { _pendingElev={x,z}; elevDialog.classList.remove('hidden'); }
-document.getElementById('ed-cancel').addEventListener('click',()=>{elevDialog.classList.add('hidden');_pendingElev=null;});
-document.getElementById('ed-ok').addEventListener('click',()=>{
-  if(!_pendingElev) return;
-  const{x,z}=_pendingElev, elev=parseFloat(document.getElementById('ed-elev').value)||0.3, type=document.getElementById('ed-type').value;
-  ES.elevatedTiles=ES.elevatedTiles.filter(e=>!(e.x===x&&e.z===z));
-  _pushUndo(); ES.elevatedTiles.push({x,z,elevation:elev,type});
-  rebuildLevel(); selSet('elevated',`${x},${z}`); _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
-  elevDialog.classList.add('hidden'); _pendingElev=null; _setStatus(`Elevated tile (${x},${z}) elev=${elev}`);
-});
+// (Room and elevated-tile creation removed — use brushes instead; old level data still loads/renders)
 
 // ── Brush dialog ──────────────────────────────────────────────────────────────
 const brushDialog = document.getElementById('brush-dialog');
@@ -1601,6 +1608,120 @@ document.getElementById('bd-create').addEventListener('click', () => {
   brushDialog.classList.add('hidden'); _pendingBrushBounds = null;
   _setStatus(`${brushClass==='trigger'?'Trigger zone':'Brush'} "${brush.id}" created  (${x1-x0+1}×${(yMax-yMin).toFixed(2)}×${z1-z0+1})`);
 });
+
+// ── Entity dialog ─────────────────────────────────────────────────────────────
+const entityDialog = document.getElementById('entity-dialog');
+let _pendingEntityPos = null;
+
+function _openEntityDialog(x, z) {
+  _pendingEntityPos = {x, z};
+  document.getElementById('en-id').value = _nextId('entity');
+  document.getElementById('en-x').value = x;
+  document.getElementById('en-z').value = z;
+  const type = document.getElementById('en-type').value || 'decor';
+  _updateEntityDialogType(type);
+  entityDialog.classList.remove('hidden');
+}
+
+function _updateEntityDialogType(type) {
+  document.getElementById('en-decor-opts').classList.toggle('hidden', type !== 'decor');
+  document.getElementById('en-light-opts').classList.toggle('hidden', type !== 'light');
+  document.getElementById('en-spawn-opts').classList.toggle('hidden', type !== 'spawn');
+  document.getElementById('en-y-row').classList.toggle('hidden', type === 'spawn');
+  if (type === 'decor') document.getElementById('en-y').value = '0.5';
+  if (type === 'light') document.getElementById('en-y').value = '2';
+}
+
+document.getElementById('en-type').addEventListener('change', function() {
+  _updateEntityDialogType(this.value);
+});
+
+document.getElementById('en-cancel').addEventListener('click', () => {
+  entityDialog.classList.add('hidden'); _pendingEntityPos = null;
+});
+
+document.getElementById('en-create').addEventListener('click', () => {
+  if (!_pendingEntityPos) return;
+  const {x, z} = _pendingEntityPos;
+  const id = document.getElementById('en-id').value || _nextId('entity');
+  const entityType = document.getElementById('en-type').value;
+  const entity = {id, entityType, x, y: parseFloat(document.getElementById('en-y').value) || 0.5, z};
+
+  if (entityType === 'decor') {
+    entity.w = parseFloat(document.getElementById('en-w').value) || 1;
+    entity.h = parseFloat(document.getElementById('en-h').value) || 1;
+    entity.d = parseFloat(document.getElementById('en-d').value) || 1;
+    entity.color = parseInt(document.getElementById('en-dec-color').value.replace('#',''), 16);
+  } else if (entityType === 'light') {
+    entity.y = parseFloat(document.getElementById('en-y').value) || 2;
+    entity.color = parseInt(document.getElementById('en-lgt-color').value.replace('#',''), 16);
+    entity.intensity = parseFloat(document.getElementById('en-intensity').value) || 1.5;
+    entity.distance  = parseFloat(document.getElementById('en-distance').value) || 10;
+  } else if (entityType === 'spawn') {
+    entity.y = 0;
+    // Only one spawn entity — remove any existing
+    ES.entities = ES.entities.filter(e => e.entityType !== 'spawn');
+    ES.playerStart = {x, z};
+    document.getElementById('meta-spawnx').value = x;
+    document.getElementById('meta-spawnz').value = z;
+  }
+
+  _pushUndo();
+  ES.entities.push(entity);
+  rebuildLevel();
+  selSet('entity', entity.id);
+  _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
+  entityDialog.classList.add('hidden'); _pendingEntityPos = null;
+  _setStatus(`Entity "${entity.id}" (${entityType}) placed at (${x}, ${z})`);
+});
+
+// ── Entity properties panel ───────────────────────────────────────────────────
+function _showEntityProps(entity) {
+  if (!entity) { propsContent.innerHTML='<p class="hint">Data not found.</p>'; return; }
+  const typeOpts = ['decor','light','spawn'].map(v=>`<option value="${v}"${v===entity.entityType?' selected':''}>${v}</option>`).join('');
+
+  let typeHtml = '';
+  if (entity.entityType === 'decor') {
+    typeHtml = `
+      ${_tn('X','ep-x',entity.x)}${_tn('Y','ep-y',entity.y??0.5,0.1)}${_tn('Z','ep-z',entity.z)}
+      ${_tn('W','ep-w',entity.w||1,0.1)}${_tn('H','ep-h',entity.h||1,0.1)}${_tn('D','ep-d',entity.d||1,0.1)}
+      ${_tcol('Color','ep-color',entity.color)}`;
+  } else if (entity.entityType === 'light') {
+    typeHtml = `
+      ${_tn('X','ep-x',entity.x)}${_tn('Y','ep-y',entity.y??2,0.1)}${_tn('Z','ep-z',entity.z)}
+      ${_tcol('Color','ep-color',entity.color)}
+      ${_tn('Intensity','ep-int',entity.intensity||1.5,0.1)}${_tn('Distance','ep-dist',entity.distance||10,1)}`;
+  } else if (entity.entityType === 'spawn') {
+    typeHtml = `${_tn('X','ep-x',entity.x)}${_tn('Z','ep-z',entity.z)}`;
+  }
+
+  propsContent.innerHTML = `
+    <div class="prop-heading">Entity</div>
+    ${_tr('ID','ep-id',entity.id)}
+    <div class="prop-row"><label>Type</label><select id="ep-type">${typeOpts}</select></div>
+    ${typeHtml}`;
+
+  document.getElementById('ep-id')?.addEventListener('change', e => { entity.id=e.target.value; rebuildLevel(); _refreshLayersList(); });
+  document.getElementById('ep-type')?.addEventListener('change', e => { entity.entityType=e.target.value; rebuildLevel(); _showEntityProps(entity); });
+
+  const bN=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ entity[field]=parseFloat(el.value); rebuildLevel(); }); };
+  const bC=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ entity[field]=parseInt(el.value.replace('#',''),16); rebuildLevel(); }); };
+
+  bN('ep-x','x'); bN('ep-y','y'); bN('ep-z','z');
+  if (entity.entityType === 'decor') { bN('ep-w','w'); bN('ep-h','h'); bN('ep-d','d'); bC('ep-color','color'); }
+  if (entity.entityType === 'light') { bC('ep-color','color'); bN('ep-int','intensity'); bN('ep-dist','distance'); }
+  // For spawn: X/Z changes also update ES.playerStart
+  if (entity.entityType === 'spawn') {
+    document.getElementById('ep-x')?.addEventListener('change', e => {
+      ES.playerStart.x = parseFloat(e.target.value)||0;
+      document.getElementById('meta-spawnx').value = ES.playerStart.x;
+    });
+    document.getElementById('ep-z')?.addEventListener('change', e => {
+      ES.playerStart.z = parseFloat(e.target.value)||0;
+      document.getElementById('meta-spawnz').value = ES.playerStart.z;
+    });
+  }
+}
 
 // ── Brush properties panel ────────────────────────────────────────────────────
 function _showBrushProps(brush) {
@@ -1712,9 +1833,12 @@ document.getElementById('meta-spawnz').addEventListener('change',e=>{ ES.playerS
 function _serialize() {
   // Always bake the nav mesh on export so it's available to the game engine
   _compileNavMesh();
-  const d={id:ES.levelId,name:ES.levelName,stepHeight:ES.stepHeight,playerStart:ES.playerStart,
+  // Derive playerStart from spawn entity if present
+  const _se=ES.entities.find(e=>e.entityType==='spawn');
+  const _ps=_se ? {x:_se.x,z:_se.z} : ES.playerStart;
+  const d={id:ES.levelId,name:ES.levelName,stepHeight:ES.stepHeight,playerStart:_ps,
     rooms:ES.rooms,elevatedTiles:ES.elevatedTiles,decoratives:ES.decoratives,lights:ES.lights,
-    portals:ES.portals,brushes:ES.brushes,navMesh:ES.navMesh,groups:ES.groups};
+    portals:ES.portals,brushes:ES.brushes,navMesh:ES.navMesh,groups:ES.groups,entities:ES.entities};
   return `// ─── ${d.name} ────\n(function () {\n  window.LEVELS = window.LEVELS || {};\n  window.LEVELS[${JSON.stringify(d.id)}] = ${JSON.stringify(d,null,2)};\n}());`;
 }
 document.getElementById('btn-export').addEventListener('click',()=>{document.getElementById('export-text').value=_serialize();document.getElementById('export-modal').classList.remove('hidden');});
@@ -1731,7 +1855,7 @@ document.getElementById('btn-do-import').addEventListener('click',()=>{
 document.getElementById('btn-load-lvl1').addEventListener('click',()=>{ if(!window.LEVELS?.level1){_setStatus('level1.js not loaded');return;} _loadLevel(window.LEVELS.level1); _setStatus('Loaded level1'); });
 document.getElementById('btn-new').addEventListener('click',()=>{
   if(!confirm('Clear current level?')) return;
-  ES.rooms=[]; ES.elevatedTiles=[]; ES.decoratives=[]; ES.lights=[]; ES.portals=[]; ES.standaloneTiles=[]; ES.brushes=[]; ES.navMesh=[]; ES.groups=[]; selClear();
+  ES.rooms=[]; ES.elevatedTiles=[]; ES.decoratives=[]; ES.lights=[]; ES.portals=[]; ES.standaloneTiles=[]; ES.brushes=[]; ES.navMesh=[]; ES.groups=[]; ES.entities=[]; selClear();
   ES.levelId='level_new'; ES.levelName='New Level'; ES.stepHeight=0.3; ES.playerStart={x:0,z:0};
   ['meta-name','meta-id','meta-steph','meta-spawnx','meta-spawnz'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value={['meta-name']:'New Level',['meta-id']:'level_new',['meta-steph']:'0.3',['meta-spawnx']:'0',['meta-spawnz']:'0'}[id]||''; });
   rebuildLevel(); _showPropsForSelection(); _setStatus('New level');
@@ -1740,7 +1864,15 @@ function _loadLevel(lvl) {
   ES.levelId=lvl.id||'level1'; ES.levelName=lvl.name||'Imported'; ES.stepHeight=lvl.stepHeight||0.3;
   ES.playerStart=lvl.playerStart||{x:0,z:0}; ES.rooms=lvl.rooms||[]; ES.elevatedTiles=lvl.elevatedTiles||[];
   ES.decoratives=lvl.decoratives||[]; ES.lights=lvl.lights||[]; ES.portals=lvl.portals||[];
-  ES.standaloneTiles=[]; ES.brushes=lvl.brushes||[]; ES.navMesh=lvl.navMesh||[]; ES.groups=lvl.groups||[]; selClear();
+  ES.standaloneTiles=[]; ES.brushes=lvl.brushes||[]; ES.navMesh=lvl.navMesh||[]; ES.groups=lvl.groups||[];
+  ES.entities=lvl.entities||[];
+  // Migrate legacy decoratives + lights → entities on first load of old levels
+  if (!ES.entities.length && (ES.decoratives.length || ES.lights.length)) {
+    ES.decoratives.forEach(d=>{ES.entities.push({id:d.id||_nextId('entity'),entityType:'decor',x:d.x||0,y:d.y??0.5,z:d.z||0,w:d.w||1,h:d.h||1,d:d.d||1,color:d.color||0x606060});});
+    ES.lights.forEach(l=>{ES.entities.push({id:l.id||_nextId('entity'),entityType:'light',x:l.x||0,y:l.y??2,z:l.z||0,color:l.color||0xffffff,intensity:l.intensity||1.5,distance:l.distance||10});});
+    ES.decoratives=[]; ES.lights=[];
+  }
+  selClear();
   document.getElementById('meta-name').value=ES.levelName; document.getElementById('meta-id').value=ES.levelId;
   document.getElementById('meta-steph').value=ES.stepHeight; document.getElementById('meta-spawnx').value=ES.playerStart.x; document.getElementById('meta-spawnz').value=ES.playerStart.z;
   rebuildLevel(); _showPropsForSelection();
@@ -1779,5 +1911,5 @@ function animate() {
 animate();
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-_setStatus('Ready  ·  S=Select  R=Room  B=Brush  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  N=Nav  ·  Z=fly  X=reset cam');
+_setStatus('Ready  ·  S=Select  B=Brush  E=Entity  N=Nav  ·  Z=fly  X=reset cam');
 rebuildLevel();

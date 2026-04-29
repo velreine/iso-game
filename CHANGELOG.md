@@ -6,6 +6,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.5.0] - 2026-04-29
+### Added
+- **Entity system** — unified `● Entity` tool (`E` key) replaces the old Decor, Light, and Spawn tools; click anywhere in the TOP view to open the Place Entity dialog with a type selector (`decor` / `light` / `spawn`) and type-specific fields
+  - **decor**: box-shaped decorative prop with W/H/D and color
+  - **light**: point light indicator sphere with color, intensity, and distance; renders as a range wireframe in the editor
+  - **spawn**: single player spawn point — replaces any previous spawn; the green sphere moves accordingly
+- Entities are fully selectable, moveable (drag / arrow keys), duplicatable (Ctrl+D), deleteable, and group-aware
+- Entity properties editable in the Properties panel; type can be changed post-placement
+- Entities serialized as `entities[]` in the level file; `playerStart` is automatically derived from the spawn entity on export
+- Backward-compatible import: levels exported with old `decoratives[]`/`lights[]` arrays automatically migrate to the new `entities[]` format on load; legacy rooms/elevated tiles from old levels still render correctly
+- game.js updated with `_lvlBuildEntity()` — decor entities render as `MeshLambertMaterial` boxes; light entities add a `THREE.PointLight` to the scene; spawn entities set the player start position
+### Removed
+- **Room**, **Tile**, **Elevated**, **Lava**, **Decor**, **Light**, **Spawn** toolbar buttons — all geometry is now built with brushes; old level data for these types still loads and renders for backward compatibility
+- Room-creation dialog and Elevated-tile dialog removed from HTML; no new rooms or elevated tiles can be created in the editor (existing ones remain selectable and editable)
+
 ## [1.4.9] - 2026-04-29
 ### Added
 - **Groups / directories** in the Objects panel: select items then press **Ctrl+G** (or the ⊞ button) to group them into a named, collapsible directory entry

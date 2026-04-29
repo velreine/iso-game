@@ -106,9 +106,10 @@ scene.add(fillLight);
 const tileMap        = {};
 const tileMeshes     = [];   // flat list used by the hover raycaster
 const wallData       = [];   // { mesh, x, z } — rebuilt each level load
-const decorativeMeshes = []; // non-tile scene objects added per level
-const levelLights    = [];   // [{ light: THREE.PointLight, pulse? }]
+const decorativeMeshes = []; // non-tile scene objects added per level (legacy)
+const levelLights    = [];   // [{ light: THREE.PointLight, pulse? }]   (legacy)
 const brushMeshes    = [];   // Hammer-style solid brushes (multi-material)
+const entityMeshes   = [];   // unified entity meshes (decor/light spheres)
 
 const tileGeom = new THREE.BoxGeometry(1 - TILE_GAP, TILE_THICKNESS, 1 - TILE_GAP);
 
@@ -335,6 +336,28 @@ function _lvlBuildBrush(brush) {
   tileMeshes.push(mesh); // include in hover raycaster
 }
 
+function _lvlBuildEntity(entity) {
+  if (entity.entityType === 'decor') {
+    const mat  = new THREE.MeshLambertMaterial({ color: entity.color ?? 0x606060 });
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(entity.w||1, entity.h||1, entity.d||1), mat
+    );
+    mesh.position.set(entity.x, entity.y ?? 0.5, entity.z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.userData = { kind: 'decorative', id: entity.id };
+    scene.add(mesh); entityMeshes.push(mesh);
+    for (const tile of (entity.blocksNav || [])) {
+      if (tileMap[tile.x]?.[tile.z]) tileMap[tile.x][tile.z].walkable = false;
+    }
+  } else if (entity.entityType === 'light') {
+    const light = new THREE.PointLight(entity.color ?? 0xffffff, entity.intensity ?? 1.5, entity.distance ?? 10);
+    light.position.set(entity.x, entity.y ?? 2, entity.z);
+    scene.add(light);
+    levelLights.push({ light, pulse: entity.pulse || null });
+  }
+  // spawn: no mesh — just sets playerStart (handled by buildLevel)
+}
+
 function tearDownLevel() {
   cancelPathfind();
   hoveredTile    = null;
@@ -346,6 +369,7 @@ function tearDownLevel() {
   for (const m of tileMeshes)         scene.remove(m);   tileMeshes.length = 0;
   for (const wd of wallData)          scene.remove(wd.mesh); wallData.length = 0;
   for (const m of decorativeMeshes)   scene.remove(m);   decorativeMeshes.length = 0;
+  for (const m of entityMeshes)       scene.remove(m);   entityMeshes.length = 0;
   for (const { light } of levelLights) scene.remove(light); levelLights.length = 0;
   for (const x of Object.keys(tileMap)) delete tileMap[x];
 }
@@ -363,8 +387,9 @@ function buildLevel(data) {
   }
   for (const t   of (data.elevatedTiles || [])) _lvlBuildElevatedTile(t, data);
   _lvlGenerateWalls();
-  for (const def of (data.decoratives  || [])) _lvlBuildDecorativeMesh(def);
-  for (const def of (data.lights       || [])) _lvlBuildLight(def);
+  for (const def of (data.decoratives  || [])) _lvlBuildDecorativeMesh(def); // legacy
+  for (const def of (data.lights       || [])) _lvlBuildLight(def);          // legacy
+  for (const ent of (data.entities     || [])) _lvlBuildEntity(ent);         // new unified
   for (const b   of (data.brushes      || [])) _lvlBuildBrush(b);
 
   // Stamp baked nav mesh — walkable brush top-faces override/add tileMap entries
@@ -389,9 +414,11 @@ function buildLevel(data) {
     }
   }
 
-  // Position player at spawn
-  grid.x = data.playerStart?.x ?? 0;
-  grid.z = data.playerStart?.z ?? 0;
+  // Position player at spawn — prefer spawn entity if present
+  const _spawnEnt = (data.entities||[]).find(e => e.entityType === 'spawn');
+  const _spawnPos = _spawnEnt ? {x:_spawnEnt.x, z:_spawnEnt.z} : (data.playerStart || {x:0,z:0});
+  grid.x = _spawnPos.x ?? 0;
+  grid.z = _spawnPos.z ?? 0;
   playerBaseY = tileMap[grid.x]?.[grid.z]?.elevation || 0;
   playerMesh.position.set(grid.x, PLAYER_SIZE / 2 + playerBaseY, grid.z);
   playerMesh.rotation.y = 0;
@@ -1178,7 +1205,7 @@ function animate() {
   // ── Mouse hover raycast ───────────────────────────────────────────────────
   if (hoverRaycastEnabled) {
     raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects([...tileMeshes, ...decorativeMeshes]);
+    const hits = raycaster.intersectObjects([...tileMeshes, ...decorativeMeshes, ...entityMeshes]);
     if (hits.length > 0) {
       // Pick the best hit. Decoratives rank by actual hit-point Y (they're tall
       // objects whose side faces sit above floor level). Tiles rank by elevation
