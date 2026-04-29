@@ -293,13 +293,34 @@ function _lvlBuildBrush(brush) {
   const w = (brush.xMax - brush.xMin) + 1;
   const h = brush.yMax - brush.yMin;
   const d = (brush.zMax - brush.zMin) + 1;
+
+  if (brush.brushClass === 'trigger') {
+    // Trigger zones are invisible in game — stamp every floor tile in the XZ footprint
+    // with trigger metadata so the game loop can fire events when the player enters/leaves
+    for (let x = brush.xMin; x <= brush.xMax; x++) {
+      for (let z = brush.zMin; z <= brush.zMax; z++) {
+        if (!tileMap[x]) tileMap[x] = {};
+        // Write trigger data; don't overwrite existing walkability (solid floor may already be here)
+        const cell = tileMap[x][z] || { walkable: false, type: 'trigger' };
+        cell.trigger = {
+          brushId:     brush.id,
+          triggerType: brush.triggerType || 'enter',
+          scriptId:    brush.scriptId    || '',
+          tag:         brush.tag         || '',
+        };
+        tileMap[x][z] = cell;
+      }
+    }
+    return; // no mesh for trigger zones
+  }
+
+  // Solid brush
   if (h <= 0) return;
   const geo  = new THREE.BoxGeometry(w, h, d);
   const mats = _BRUSH_FACE_ORDER.map(fk => {
     const f = (brush.faces || {})[fk] || {};
     if (f.nodraw) return new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0, depthWrite: false });
-    const mat = new THREE.MeshLambertMaterial({ color: f.color ?? 0x808080 });
-    return mat;
+    return new THREE.MeshLambertMaterial({ color: f.color ?? 0x808080 });
   });
   const mesh = new THREE.Mesh(geo, mats);
   mesh.position.set(
@@ -307,7 +328,7 @@ function _lvlBuildBrush(brush) {
     (brush.yMin + brush.yMax) / 2,
     (brush.zMin + brush.zMax) / 2
   );
-  mesh.castShadow   = true;
+  mesh.castShadow    = true;
   mesh.receiveShadow = true;
   scene.add(mesh);
   brushMeshes.push(mesh);

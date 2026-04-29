@@ -20,6 +20,7 @@
       <button class="tool-btn"        data-tool="light"    title="Place Light (L)">✦ Light</button>
       <button class="tool-btn"        data-tool="tile"     title="Single Tile (T)">◻ Tile</button>
       <button class="tool-btn"        data-tool="spawn"    title="Set Player Spawn (P)">⊕ Spawn</button>
+      <button class="tool-btn"        data-tool="nav"      title="Paint Nav Cells (N)">⬡ Nav</button>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -85,6 +86,7 @@
         <div class="section-title">
           Objects
           <div class="title-btns">
+            <button id="btn-group-sel" title="Group selected (Ctrl+G)">⊞</button>
             <button id="btn-dup-obj" title="Duplicate">⧉</button>
             <button id="btn-del-obj" title="Delete">✕</button>
           </div>
@@ -161,8 +163,31 @@
           <span style="font-size:11px;color:var(--text-dim)">stamp nav mesh</span>
         </label>
       </div>
+      <!-- Class -->
+      <div class="prop-row">
+        <label>Class</label>
+        <select id="bd-class">
+          <option value="solid">solid</option>
+          <option value="trigger">trigger</option>
+        </select>
+      </div>
+      <!-- Trigger-only options -->
+      <div id="bd-trigger-opts" class="hidden">
+        <div class="prop-row">
+          <label>Event</label>
+          <select id="bd-trigger-type">
+            <option value="enter">onEnter</option>
+            <option value="leave">onLeave</option>
+            <option value="zone">zone (stay)</option>
+            <option value="killzone">killzone</option>
+          </select>
+        </div>
+        <div class="prop-row"><label>Script ID</label><input type="text" id="bd-script-id" placeholder="e.g. openDoor1"></div>
+        <div class="prop-row"><label>Tag</label><input type="text" id="bd-tag" placeholder="optional label"></div>
+        <div class="prop-row"><label>Color</label><input type="color" id="bd-trigger-color" value="#4488ff"></div>
+      </div>
       <div class="prop-separator"></div>
-      <div class="prop-heading">Faces</div>
+      <div class="prop-heading">Faces <span id="bd-faces-hint" style="font-size:10px;color:var(--text-hint);font-weight:normal"></span></div>
       <div class="face-grid" id="bd-face-grid">
         <!-- Top +Y -->
         <div class="face-row" data-face="py">

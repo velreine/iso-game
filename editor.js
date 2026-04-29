@@ -18,6 +18,7 @@ const ES = {
   standaloneTiles: [],
   brushes:  [],   // Hammer-style solid brushes
   navMesh:  [],   // baked nav tiles [{x,z,elevation}]
+  groups:   [],   // [{id, name, collapsed, items:[{kind,id}]}]
 
   // Multi-selection: array of {kind, id}
   // kind: 'room' | 'elevated' | 'decor' | 'light' | 'standalone' | 'brush'
@@ -352,26 +353,71 @@ function _buildBrushMesh(brush) {
   const w=(brush.xMax-brush.xMin)+1, h=brush.yMax-brush.yMin, d=(brush.zMax-brush.zMin)+1;
   if (h<=0) return;
   const geo=new THREE.BoxGeometry(w,h,d);
-  // Three.js BoxGeometry group order: px nx py ny pz nz
+  const pos=new THREE.Vector3((brush.xMin+brush.xMax)/2,(brush.yMin+brush.yMax)/2,(brush.zMin+brush.zMax)/2);
+
+  if (brush.brushClass==='trigger') {
+    // Trigger zones: semi-transparent fill + edge outline (editor-only, invisible in game)
+    const tCol = brush.triggerColor ?? 0x4488ff;
+    const fillMat = new THREE.MeshBasicMaterial({ color:tCol, transparent:true, opacity:0.14, depthWrite:false, side:THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, fillMat);
+    mesh.position.copy(pos);
+    mesh.userData={kind:'brush',id:brush.id,brushClass:'trigger'};
+    levelGroup.add(mesh); brushMeshes.push(mesh);
+    // Edge wireframe overlay
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color:tCol, transparent:true, opacity:0.8 })
+    );
+    mesh.add(edges);
+    return;
+  }
+
+  // Solid brush — per-face materials (Three.js BoxGeometry group order: px nx py ny pz nz)
   const mats=FACE_ORDER.map(fk=>{
     const f=(brush.faces||{})[fk]||{};
     if (f.nodraw) return new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0,depthWrite:false});
     return new THREE.MeshLambertMaterial({color:f.color??0x808080});
   });
   const mesh=new THREE.Mesh(geo,mats);
-  mesh.position.set((brush.xMin+brush.xMax)/2, (brush.yMin+brush.yMax)/2, (brush.zMin+brush.zMax)/2);
+  mesh.position.copy(pos);
   mesh.castShadow=mesh.receiveShadow=true;
-  mesh.userData={kind:'brush',id:brush.id};
+  mesh.userData={kind:'brush',id:brush.id,brushClass:'solid'};
   levelGroup.add(mesh); brushMeshes.push(mesh);
 }
 
 // Derive integer nav tiles from walkable brushes + rooms + standalone tiles
 function _compileNavMesh() {
   const cells={};
+  const SH = ES.stepHeight || STEP_H;
   const stamp=(x,z,elev)=>{ const k=`${x},${z}`; if(!cells[k]||cells[k].elevation<elev) cells[k]={x,z,elevation:elev}; };
-  ES.brushes.forEach(b=>{ if(!b.walkable)return; for(let x=b.xMin;x<=b.xMax;x++) for(let z=b.zMin;z<=b.zMax;z++) stamp(x,z,b.yMax); });
-  ES.rooms.forEach(r=>{ for(let x=r.xMin;x<=r.xMax;x++) for(let z=r.zMin;z<=r.zMax;z++) stamp(x,z,r.elevation||0); });
+
+  // Brushes — walkable, use yMax as walking surface
+  ES.brushes.forEach(b=>{
+    if(!b.walkable || b.brushClass==='trigger') return;
+    for(let x=b.xMin;x<=b.xMax;x++) for(let z=b.zMin;z<=b.zMax;z++) stamp(x,z,b.yMax);
+  });
+
+  // Rooms — handle ramps with per-step elevation
+  ES.rooms.forEach(r=>{
+    if(r.type==='ramp'){
+      const axis=r.elevationAxis||'x';
+      const steps=axis==='z'?r.zMax-r.zMin+1:r.xMax-r.xMin+1;
+      for(let s=0;s<steps;s++){
+        const elev=(r.elevationStart||SH)+SH*s;
+        if(axis==='z'){ for(let x=r.xMin;x<=r.xMax;x++) stamp(x,r.zMin+s,elev); }
+        else           { for(let z=r.zMin;z<=r.zMax;z++) stamp(r.xMin+s,z,elev); }
+      }
+    } else {
+      for(let x=r.xMin;x<=r.xMax;x++) for(let z=r.zMin;z<=r.zMax;z++) stamp(x,z,r.elevation||0);
+    }
+  });
+
+  // Elevated tiles
+  ES.elevatedTiles.forEach(et=>stamp(et.x,et.z,et.elevation||0));
+
+  // Standalone tiles
   ES.standaloneTiles.forEach(st=>stamp(st.x,st.z,st.elevation||0));
+
   ES.navMesh=Object.values(cells);
   _buildNavOverlay();
   _setStatus(`Nav compiled — ${ES.navMesh.length} tile(s)  ·  export to bake into level`);
@@ -644,6 +690,23 @@ function _onLeftDown(cx, cy, ctrl) {
   }
   if (ES.tool==='light'    && vp==='top') {
     const wp=topToWorld(cx,cy); if(wp) _placeLight(Math.round(wp.x),Math.round(wp.z)); return;
+  }
+  if (ES.tool==='nav' && vp==='top') {
+    const wp=topToWorld(cx,cy); if(!wp) return;
+    const tx=Math.round(wp.x), tz=Math.round(wp.z);
+    const idx=ES.navMesh.findIndex(c=>c.x===tx&&c.z===tz);
+    if (ctrl || idx>=0) {
+      // ctrl+click or click on existing cell → remove
+      if(idx>=0) { ES.navMesh.splice(idx,1); _buildNavOverlay(); _setStatus(`Nav cell removed (${tx},${tz})  ·  ${ES.navMesh.length} total`); }
+    } else {
+      // click on empty → add at tileMap elevation or 0
+      const elev = tmGet(tx,tz)?.elevation ?? 0;
+      ES.navMesh.push({x:tx,z:tz,elevation:elev,manual:true});
+      _buildNavOverlay(); _setStatus(`Nav cell added (${tx},${tz})  ·  ${ES.navMesh.length} total`);
+    }
+    // Auto-show overlay when painting
+    if (!_showNavMesh) { _showNavMesh=true; document.getElementById('btn-nav-toggle').classList.add('nav-active'); _buildNavOverlay(); }
+    return;
   }
   if (ES.tool==='spawn'    && vp==='top') {
     const wp=topToWorld(cx,cy);
@@ -923,7 +986,10 @@ function _duplicateSelection() {
     }
   });
   ES.selection=newSel;
-  rebuildLevel(); _setStatus(`Duplicated ${newSel.length} item(s) — selection updated to new copies`);
+  // Always land back on Select so the copies can be moved immediately
+  document.querySelector('[data-tool="select"]')?.click();
+  rebuildLevel(); _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
+  _setStatus(`Duplicated ${newSel.length} item(s) — selection updated to new copies`);
 }
 
 // ── Undo / Delete ─────────────────────────────────────────────────────────────
@@ -932,7 +998,7 @@ function _pushUndo() {
     rooms:ES.rooms, elevatedTiles:ES.elevatedTiles, decoratives:ES.decoratives,
     lights:ES.lights, portals:ES.portals, playerStart:ES.playerStart,
     standaloneTiles:ES.standaloneTiles, brushes:ES.brushes, navMesh:ES.navMesh,
-    selection:ES.selection,
+    groups:ES.groups, selection:ES.selection,
   }));
   if (ES.undoStack.length>50) ES.undoStack.shift();
 }
@@ -942,6 +1008,7 @@ function _undo() {
   Object.assign(ES,snap);
   if (!ES.brushes)  ES.brushes=[];
   if (!ES.navMesh)  ES.navMesh=[];
+  if (!ES.groups)   ES.groups=[];
   rebuildLevel(); _showPropsForSelection(); _setStatus('Undo');
 }
 function _deleteSelected() {
@@ -955,7 +1022,39 @@ function _deleteSelected() {
     else if(s.kind==='elevated') { const [x,z]=s.id.split(',').map(Number); ES.elevatedTiles=ES.elevatedTiles.filter(e=>!(e.x===x&&e.z===z)); }
     else if(s.kind==='brush') ES.brushes=ES.brushes.filter(b=>b.id!==s.id);
   });
+  // Remove deleted items from any groups; prune empty groups
+  ES.groups.forEach(g => {
+    g.items = g.items.filter(ref => {
+      switch(ref.kind) {
+        case 'room':       return ES.rooms.some(r=>r.id===ref.id);
+        case 'brush':      return ES.brushes.some(b=>b.id===ref.id);
+        case 'decor':      return ES.decoratives.some(d=>d.id===ref.id);
+        case 'light':      return ES.lights.some(l=>l.id===ref.id);
+        case 'standalone': return ES.standaloneTiles.some(t=>t.id===ref.id);
+        case 'elevated':   { const [x,z]=ref.id.split(',').map(Number); return ES.elevatedTiles.some(e=>e.x===x&&e.z===z); }
+        default: return true;
+      }
+    });
+  });
+  ES.groups = ES.groups.filter(g => g.items.length > 0);
   selClear(); rebuildLevel(); _showPropsForSelection();
+}
+
+// ── Group selection ───────────────────────────────────────────────────────────
+function _groupSelected() {
+  if (!ES.selection.length) { _setStatus('Nothing selected to group'); return; }
+  _pushUndo();
+  const id   = _nextId('grp');
+  const name = `Group ${ES.groups.length + 1}`;
+  const refs = ES.selection.map(s => ({kind:s.kind, id:s.id}));
+  // Each item can only belong to one group — evict from any existing group
+  ES.groups.forEach(g => {
+    g.items = g.items.filter(r => !refs.some(nr => nr.kind===r.kind && nr.id===r.id));
+  });
+  ES.groups = ES.groups.filter(g => g.items.length > 0);
+  ES.groups.push({ id, name, collapsed: false, items: refs });
+  _refreshLayersList();
+  _setStatus(`Grouped ${refs.length} item(s) as "${name}" — double-click to rename`);
 }
 
 // ── Fly-cam helpers ───────────────────────────────────────────────────────────
@@ -1002,7 +1101,7 @@ document.addEventListener('pointerlockchange', () => {
   } else {
     _heldKeys.clear();
     canvas.style.cursor = ES.tool==='select' ? 'default' : 'crosshair';
-    _setStatus('Ready  ·  S=Select  R=Room  B=Brush  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  ·  Z=fly  X=reset cam');
+    _setStatus('Ready  ·  S=Select  R=Room  B=Brush  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  N=Nav  ·  Z=fly  X=reset cam');
   }
 });
 
@@ -1180,23 +1279,129 @@ function _bindProps(kind,data) {
 
 // ── Layers list ───────────────────────────────────────────────────────────────
 const layersList=document.getElementById('layers-list');
+
+const _escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+function _getItemDisplay(kind, id) {
+  switch(kind) {
+    case 'room':       { const r=ES.rooms.find(r=>r.id===id);           return r ? {icon:'▣',name:r.id,sub:r.type} : null; }
+    case 'brush':      { const b=ES.brushes.find(b=>b.id===id);         return b ? {icon:b.brushClass==='trigger'?'◈':'⬛',name:b.id,sub:b.brushClass==='trigger'?`trigger:${b.triggerType||'enter'}`:'brush'} : null; }
+    case 'elevated':   return { icon:'▲', name:`(${id})`, sub:'elev' };
+    case 'standalone': { const t=ES.standaloneTiles.find(t=>t.id===id); return t ? {icon:'◻',name:t.id,sub:'tile'} : null; }
+    case 'decor':      { const d=ES.decoratives.find(d=>d.id===id);     return d ? {icon:'□',name:d.id,sub:'decor'} : null; }
+    case 'light':      { const l=ES.lights.find(l=>l.id===id);          return l ? {icon:'✦',name:l.id,sub:'light'} : null; }
+    default: return null;
+  }
+}
+
 function _refreshLayersList() {
-  const row=(kind,id,icon,name,sub)=>`<div class="layer-item${selContains(kind,id)?' selected':''}" data-kind="${kind}" data-id="${id}"><span class="layer-icon">${icon}</span><span class="layer-name">${name}</span><span class="layer-kind">${sub}</span></div>`;
-  const rows=[];
-  ES.rooms.forEach(r=>rows.push(row('room',r.id,'▣',r.id,r.type)));
-  ES.brushes.forEach(b=>rows.push(row('brush',b.id,'⬛',b.id,'brush')));
-  ES.elevatedTiles.forEach(et=>{ const k=`${et.x},${et.z}`; rows.push(row('elevated',k,'▲',`(${et.x},${et.z})`,et.type)); });
-  ES.standaloneTiles.forEach(st=>rows.push(row('standalone',st.id,'◻',st.id,'tile')));
-  ES.decoratives.forEach(d=>rows.push(row('decor',d.id,'□',d.id,'decor')));
-  ES.lights.forEach(l=>rows.push(row('light',l.id,'✦',l.id,'light')));
-  layersList.innerHTML=rows.join('');
-  layersList.querySelectorAll('.layer-item').forEach(el=>{
-    el.addEventListener('click',e=>{
-      const{kind,id}=el.dataset;
-      const ctrl=e.ctrlKey||e.metaKey;
-      if(ctrl) { selContains(kind,id)?selRemove(kind,id):selAdd(kind,id); }
-      else      { selSet(kind,id); }
+  // Build set of keys that belong to a group
+  const groupedKeys = new Set();
+  ES.groups.forEach(g => g.items.forEach(r => groupedKeys.add(`${r.kind}::${r.id}`)));
+
+  const itemRowHTML = (kind, id, indent) => {
+    const d = _getItemDisplay(kind, id); if (!d) return '';
+    const style = indent ? ' style="padding-left:18px"' : '';
+    return `<div class="layer-item${selContains(kind,id)?' selected':''}" data-kind="${kind}" data-id="${_escHtml(id)}"${style}>
+      <span class="layer-icon">${d.icon}</span>
+      <span class="layer-name">${_escHtml(d.name)}</span>
+      <span class="layer-kind">${_escHtml(d.sub)}</span>
+    </div>`;
+  };
+
+  let html = '';
+
+  // ── Groups ──
+  ES.groups.forEach(g => {
+    const anySel = g.items.some(r => selContains(r.kind, r.id));
+    html += `<div class="group-header${anySel?' sel':''}" data-group-id="${_escHtml(g.id)}">
+      <span class="group-toggle${g.collapsed?' coll':''}">▾</span>
+      <span class="group-name">${_escHtml(g.name)}</span>
+      <span class="layer-kind">${g.items.length}</span>
+      <button class="group-del" title="Ungroup (removes group, keeps items)">×</button>
+    </div>`;
+    if (!g.collapsed) {
+      html += `<div class="group-body">`;
+      g.items.forEach(r => { html += itemRowHTML(r.kind, r.id, true); });
+      html += `</div>`;
+    }
+  });
+
+  // ── Ungrouped items ──
+  const allItems = [
+    ...ES.rooms.map(r=>({kind:'room',id:r.id})),
+    ...ES.brushes.map(b=>({kind:'brush',id:b.id})),
+    ...ES.elevatedTiles.map(et=>({kind:'elevated',id:`${et.x},${et.z}`})),
+    ...ES.standaloneTiles.map(st=>({kind:'standalone',id:st.id})),
+    ...ES.decoratives.map(d=>({kind:'decor',id:d.id})),
+    ...ES.lights.map(l=>({kind:'light',id:l.id})),
+  ];
+  allItems.filter(({kind,id})=>!groupedKeys.has(`${kind}::${id}`))
+          .forEach(({kind,id})=>{ html += itemRowHTML(kind, id, false); });
+
+  layersList.innerHTML = html;
+
+  // ── Bind: item click ──
+  layersList.querySelectorAll('.layer-item').forEach(el => {
+    el.addEventListener('click', e => {
+      const {kind, id} = el.dataset;
+      const ctrl = e.ctrlKey||e.metaKey;
+      if (ctrl) { selContains(kind,id) ? selRemove(kind,id) : selAdd(kind,id); }
+      else       { selSet(kind, id); }
       _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
+    });
+  });
+
+  // ── Bind: group interactions ──
+  layersList.querySelectorAll('.group-header').forEach(headerEl => {
+    const gId = headerEl.dataset.groupId;
+    const g   = ES.groups.find(g => g.id === gId);
+    if (!g) return;
+
+    // Click on header → select all items in group
+    headerEl.addEventListener('click', e => {
+      if (e.target.classList.contains('group-del') ||
+          e.target.classList.contains('group-toggle') ||
+          e.target.tagName === 'INPUT') return;
+      const ctrl = e.ctrlKey||e.metaKey;
+      if (!ctrl) selClear();
+      g.items.forEach(r => selAdd(r.kind, r.id));
+      _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
+      _setStatus(`"${g.name}" — ${g.items.length} item(s) selected`);
+    });
+
+    // Toggle collapse
+    headerEl.querySelector('.group-toggle')?.addEventListener('click', e => {
+      e.stopPropagation();
+      g.collapsed = !g.collapsed;
+      _refreshLayersList();
+    });
+
+    // Double-click name → inline rename
+    headerEl.querySelector('.group-name')?.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      const span = e.currentTarget;
+      const inp  = document.createElement('input');
+      inp.className = 'group-name-edit';
+      inp.value = g.name;
+      span.replaceWith(inp);
+      inp.focus(); inp.select();
+      const commit = () => { g.name = inp.value.trim() || g.name; _refreshLayersList(); };
+      inp.addEventListener('blur', commit);
+      inp.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter')  { ev.preventDefault(); commit(); }
+        if (ev.key === 'Escape') { _refreshLayersList(); }
+        ev.stopPropagation();
+      });
+    });
+
+    // × button → ungroup (keep items, remove group)
+    headerEl.querySelector('.group-del')?.addEventListener('click', e => {
+      e.stopPropagation();
+      _pushUndo();
+      ES.groups = ES.groups.filter(gg => gg.id !== gId);
+      _refreshLayersList();
+      _setStatus(`Ungrouped "${g.name}"`);
     });
   });
 }
@@ -1210,7 +1415,7 @@ document.getElementById('tool-buttons').querySelectorAll('.tool-btn').forEach(bt
     document.querySelectorAll('.tool-btn').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     ES.tool=btn.dataset.tool;
-    _setStatus({select:'Select — click / Ctrl+click / drag marquee in any ortho view  ·  drag to move  ·  arrow keys to nudge',room:'Room — drag rectangle in TOP view',brush:'Brush — drag rectangle in TOP view  ·  per-face color/nodraw',tile:'Tile — click TOP view to place  ·  drag to move when selected',elevated:'Elevated — click tile in TOP view',lava:'Lava — click to toggle lava on room tiles',decor:'Decor — click TOP view',light:'Light — click TOP view',spawn:'Spawn — click TOP view'}[ES.tool]||ES.tool);
+    _setStatus({select:'Select — click / Ctrl+click / drag marquee in any ortho view  ·  drag to move  ·  arrow keys to nudge',room:'Room — drag rectangle in TOP view',brush:'Brush — drag rectangle in TOP view  ·  per-face color/nodraw  ·  class: solid or trigger zone',tile:'Tile — click TOP view to place  ·  drag to move when selected',elevated:'Elevated — click tile in TOP view',lava:'Lava — click to toggle lava on room tiles',decor:'Decor — click TOP view',light:'Light — click TOP view',spawn:'Spawn — click TOP view',nav:'Nav Paint — click to add cell  ·  Ctrl+click to remove  ·  Compile Nav to reset from geometry'}[ES.tool]||ES.tool);
     canvas.style.cursor=ES.tool==='select'?'default':'crosshair';
   });
 });
@@ -1229,11 +1434,23 @@ window.addEventListener('keydown',e=>{
   if(_flyMode) return;
 
   // Tool shortcuts
-  const map={s:'select',r:'room',b:'brush',t:'tile',e:'elevated',v:'lava',d:'decor',l:'light',p:'spawn'};
-  if(map[e.key.toLowerCase()]) document.querySelector(`[data-tool="${map[e.key.toLowerCase()]}"]`)?.click();
+  const map={s:'select',r:'room',b:'brush',t:'tile',e:'elevated',v:'lava',d:'decor',l:'light',p:'spawn',n:'nav'};
+  if(!e.ctrlKey&&!e.metaKey&&map[e.key.toLowerCase()]) document.querySelector(`[data-tool="${map[e.key.toLowerCase()]}"]`)?.click();
   if(e.key==='Delete'||e.key==='Backspace') _deleteSelected();
   if(e.ctrlKey&&e.key.toLowerCase()==='z') { e.preventDefault(); _undo(); }
   if(e.ctrlKey&&e.key.toLowerCase()==='d') { e.preventDefault(); _duplicateSelection(); }
+  if(e.ctrlKey&&e.key.toLowerCase()==='g') { e.preventDefault(); _groupSelected(); }
+  if(e.ctrlKey&&e.key.toLowerCase()==='a') {
+    e.preventDefault();
+    ES.rooms.forEach(r=>selAdd('room',r.id));
+    ES.brushes.forEach(b=>selAdd('brush',b.id));
+    ES.elevatedTiles.forEach(et=>selAdd('elevated',`${et.x},${et.z}`));
+    ES.standaloneTiles.forEach(st=>selAdd('standalone',st.id));
+    ES.decoratives.forEach(d=>selAdd('decor',d.id));
+    ES.lights.forEach(l=>selAdd('light',l.id));
+    _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
+    _setStatus(`${ES.selection.length} item(s) selected`);
+  }
 
   // Arrow keys — move selection
   if(e.key==='ArrowLeft')  { e.preventDefault(); _moveSelection(-1,0); }
@@ -1244,7 +1461,8 @@ window.addEventListener('keydown',e=>{
 
 window.addEventListener('keyup',e=>{ _heldKeys.delete(e.key.toLowerCase()); });
 
-// Dup button in panel
+// Dup / delete / group buttons in panel
+document.getElementById('btn-group-sel').addEventListener('click', _groupSelected);
 document.getElementById('btn-dup-obj').addEventListener('click', _duplicateSelection);
 document.getElementById('btn-del-obj').addEventListener('click', _deleteSelected);
 
@@ -1324,6 +1542,15 @@ function _openBrushDialog(x0, x1, z0, z1) {
   document.getElementById('bd-ymin').value = '0';
   document.getElementById('bd-ymax').value = '0.3';
   document.getElementById('bd-walkable').checked = true;
+  // Reset class to solid
+  const bdClass = document.getElementById('bd-class');
+  bdClass.value = 'solid';
+  document.getElementById('bd-trigger-opts').classList.add('hidden');
+  document.getElementById('bd-faces-hint').textContent = '';
+  document.getElementById('bd-script-id').value = '';
+  document.getElementById('bd-tag').value = '';
+  document.getElementById('bd-trigger-color').value = '#4488ff';
+  document.getElementById('bd-trigger-type').value = 'enter';
   // Reset face colours to defaults
   const defs={py:'#606060',ny:'#404040',px:'#505050',nx:'#505050',pz:'#505050',nz:'#505050'};
   Object.keys(defs).forEach(fk=>{
@@ -1333,6 +1560,14 @@ function _openBrushDialog(x0, x1, z0, z1) {
   brushDialog.classList.remove('hidden');
 }
 
+// Toggle trigger-specific fields when the class selector changes
+document.getElementById('bd-class').addEventListener('change', function() {
+  const isTrig = this.value === 'trigger';
+  document.getElementById('bd-trigger-opts').classList.toggle('hidden', !isTrig);
+  document.getElementById('bd-faces-hint').textContent = isTrig ? '(invisible in game)' : '';
+  if (isTrig) document.getElementById('bd-walkable').checked = false;
+});
+
 document.getElementById('bd-cancel').addEventListener('click', () => {
   brushDialog.classList.add('hidden'); _pendingBrushBounds = null;
 });
@@ -1340,30 +1575,39 @@ document.getElementById('bd-cancel').addEventListener('click', () => {
 document.getElementById('bd-create').addEventListener('click', () => {
   if (!_pendingBrushBounds) return;
   const {x0, x1, z0, z1} = _pendingBrushBounds;
-  const id   = document.getElementById('bd-id').value || _nextId('brush');
-  const yMin = parseFloat(document.getElementById('bd-ymin').value) || 0;
-  const yMax = parseFloat(document.getElementById('bd-ymax').value) || 0.3;
-  const walkable = document.getElementById('bd-walkable').checked;
+  const id         = document.getElementById('bd-id').value || _nextId('brush');
+  const yMin       = parseFloat(document.getElementById('bd-ymin').value) || 0;
+  const yMax       = parseFloat(document.getElementById('bd-ymax').value) || 0.3;
+  const walkable   = document.getElementById('bd-walkable').checked;
+  const brushClass = document.getElementById('bd-class').value || 'solid';
   const faces = {};
   FACE_ORDER.forEach(fk => {
     const col = parseInt((document.getElementById(`bd-${fk}-col`)?.value||'#808080').replace('#',''), 16);
     const nd  = document.getElementById(`bd-${fk}-nd`)?.checked || false;
     faces[fk] = { color: col, nodraw: nd };
   });
-  const brush = { id, xMin:x0, xMax:x1, zMin:z0, zMax:z1, yMin, yMax, walkable, faces };
+  const brush = { id, xMin:x0, xMax:x1, zMin:z0, zMax:z1, yMin, yMax, walkable, brushClass, faces };
+  if (brushClass === 'trigger') {
+    brush.triggerType  = document.getElementById('bd-trigger-type').value || 'enter';
+    brush.scriptId     = document.getElementById('bd-script-id').value || '';
+    brush.tag          = document.getElementById('bd-tag').value || '';
+    brush.triggerColor = parseInt(document.getElementById('bd-trigger-color').value.replace('#',''), 16);
+  }
   _pushUndo();
   ES.brushes.push(brush);
   rebuildLevel();
   selSet('brush', brush.id);
   _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
   brushDialog.classList.add('hidden'); _pendingBrushBounds = null;
-  _setStatus(`Brush "${brush.id}" created  (${x1-x0+1}×${(yMax-yMin).toFixed(2)}×${z1-z0+1})`);
+  _setStatus(`${brushClass==='trigger'?'Trigger zone':'Brush'} "${brush.id}" created  (${x1-x0+1}×${(yMax-yMin).toFixed(2)}×${z1-z0+1})`);
 });
 
 // ── Brush properties panel ────────────────────────────────────────────────────
 function _showBrushProps(brush) {
   if (!brush) { propsContent.innerHTML='<p class="hint">Data not found.</p>'; return; }
   const _hex = c => '#'+((c||0x808080)>>>0).toString(16).padStart(6,'0');
+  const isTrigger = brush.brushClass === 'trigger';
+
   let faceRows = FACE_ORDER.map(fk => {
     const f = (brush.faces||{})[fk] || {};
     const col = _hex(f.color??0x808080);
@@ -1371,15 +1615,28 @@ function _showBrushProps(brush) {
     const isSelFace = _selectedFace?.brushId===brush.id && _selectedFace?.faceKey===fk;
     return `<div class="face-row${isSelFace?' sel-face':''}" data-face="${fk}">
       <span class="face-lbl">${FACE_LABEL[fk]}</span>
-      <input type="color" id="bp-${fk}-col" value="${col}">
-      <label class="nodraw-lbl"><input type="checkbox" id="bp-${fk}-nd"${nd}> ND</label>
+      <input type="color" id="bp-${fk}-col" value="${col}"${isTrigger?' disabled':''}>
+      <label class="nodraw-lbl"><input type="checkbox" id="bp-${fk}-nd"${nd}${isTrigger?' disabled':''}> ND</label>
     </div>`;
   }).join('');
 
-  const walkChk = brush.walkable ? ' checked' : '';
+  const walkChk  = brush.walkable ? ' checked' : '';
+  const classOpts = ['solid','trigger'].map(v=>`<option value="${v}"${v===brush.brushClass?' selected':''}>${v}</option>`).join('');
+
+  // Trigger-only section
+  const triggerTypeOpts = ['enter','leave','zone','killzone'].map(v=>`<option value="${v}"${v===brush.triggerType?' selected':''}>${v==='enter'?'onEnter':v==='leave'?'onLeave':v==='zone'?'zone (stay)':'killzone'}</option>`).join('');
+  const triggerHtml = isTrigger ? `
+    <div class="prop-separator"></div>
+    <div class="prop-heading">Trigger</div>
+    <div class="prop-row"><label>Event</label><select id="bp-trigger-type">${triggerTypeOpts}</select></div>
+    ${_tr('Script ID','bp-script-id',brush.scriptId||'')}
+    ${_tr('Tag','bp-tag',brush.tag||'')}
+    ${_tcol('Color','bp-trigger-color',brush.triggerColor??0x4488ff)}` : '';
+
   propsContent.innerHTML = `
-    <div class="prop-heading">Brush</div>
+    <div class="prop-heading">${isTrigger?'Trigger Zone':'Brush'}</div>
     ${_tr('ID','bp-id',brush.id)}
+    <div class="prop-row"><label>Class</label><select id="bp-class">${classOpts}</select></div>
     ${_tn('xMin','bp-xmin',brush.xMin)}${_tn('xMax','bp-xmax',brush.xMax)}
     ${_tn('zMin','bp-zmin',brush.zMin)}${_tn('zMax','bp-zmax',brush.zMax)}
     ${_tn('Y Min','bp-ymin',brush.yMin,0.1)}${_tn('Y Max','bp-ymax',brush.yMax,0.1)}
@@ -1389,41 +1646,46 @@ function _showBrushProps(brush) {
         <span style="font-size:11px;color:var(--text-dim)">nav mesh</span>
       </label>
     </div>
+    ${triggerHtml}
     <div class="prop-separator"></div>
-    <div class="prop-heading">Faces</div>
+    <div class="prop-heading">Faces${isTrigger?' <span style="font-size:10px;color:var(--text-hint);font-weight:normal">(invisible in game)</span>':''}</div>
     <div class="face-grid">${faceRows}</div>`;
 
-  // Bind number/text fields
+  // Bind fields
   const bN=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ brush[field]=parseFloat(el.value); rebuildLevel(); _updateHandles(brush.id,'brush'); }); };
   bN('bp-xmin','xMin'); bN('bp-xmax','xMax'); bN('bp-zmin','zMin'); bN('bp-zmax','zMax');
   bN('bp-ymin','yMin'); bN('bp-ymax','yMax');
   document.getElementById('bp-id')?.addEventListener('change', e => { brush.id=e.target.value; rebuildLevel(); _refreshLayersList(); });
   document.getElementById('bp-walkable')?.addEventListener('change', e => { brush.walkable=e.target.checked; });
+  document.getElementById('bp-class')?.addEventListener('change', e => { brush.brushClass=e.target.value; rebuildLevel(); _showBrushProps(brush); });
 
-  // Bind face color + nodraw
-  FACE_ORDER.forEach(fk => {
-    const colEl = document.getElementById(`bp-${fk}-col`);
-    const ndEl  = document.getElementById(`bp-${fk}-nd`);
-    if (!brush.faces) brush.faces={};
-    if (!brush.faces[fk]) brush.faces[fk]={color:0x808080,nodraw:false};
-    colEl?.addEventListener('change', () => {
-      brush.faces[fk].color = parseInt(colEl.value.replace('#',''), 16);
-      rebuildLevel();
-    });
-    ndEl?.addEventListener('change', () => {
-      brush.faces[fk].nodraw = ndEl.checked;
-      rebuildLevel();
-    });
-  });
+  // Trigger-specific binds
+  if (isTrigger) {
+    document.getElementById('bp-trigger-type')?.addEventListener('change', e => { brush.triggerType=e.target.value; });
+    document.getElementById('bp-script-id')?.addEventListener('change', e => { brush.scriptId=e.target.value; });
+    document.getElementById('bp-tag')?.addEventListener('change', e => { brush.tag=e.target.value; });
+    document.getElementById('bp-trigger-color')?.addEventListener('change', e => { brush.triggerColor=parseInt(e.target.value.replace('#',''),16); rebuildLevel(); });
+  }
 
-  // Face row click → highlight that face
-  propsContent.querySelectorAll('.face-row').forEach(row => {
-    row.addEventListener('click', e => {
-      if (e.target.tagName==='INPUT') return; // let the input handle itself
-      _selectedFace = { brushId: brush.id, faceKey: row.dataset.face };
-      _showBrushProps(brush); // re-render to show highlight
+  // Bind face color + nodraw (solid only)
+  if (!isTrigger) {
+    FACE_ORDER.forEach(fk => {
+      const colEl = document.getElementById(`bp-${fk}-col`);
+      const ndEl  = document.getElementById(`bp-${fk}-nd`);
+      if (!brush.faces) brush.faces={};
+      if (!brush.faces[fk]) brush.faces[fk]={color:0x808080,nodraw:false};
+      colEl?.addEventListener('change', () => { brush.faces[fk].color = parseInt(colEl.value.replace('#',''), 16); rebuildLevel(); });
+      ndEl?.addEventListener('change',  () => { brush.faces[fk].nodraw = ndEl.checked; rebuildLevel(); });
     });
-  });
+    // Face row click → highlight that face
+    propsContent.querySelectorAll('.face-row').forEach(row => {
+      row.addEventListener('click', e => {
+        if (e.target.tagName==='INPUT') return;
+        _selectedFace = { brushId: brush.id, faceKey: row.dataset.face };
+        _showBrushProps(brush);
+      });
+    });
+  }
 }
 
 // ── Nav / Compile toolbar buttons ─────────────────────────────────────────────
@@ -1452,7 +1714,7 @@ function _serialize() {
   _compileNavMesh();
   const d={id:ES.levelId,name:ES.levelName,stepHeight:ES.stepHeight,playerStart:ES.playerStart,
     rooms:ES.rooms,elevatedTiles:ES.elevatedTiles,decoratives:ES.decoratives,lights:ES.lights,
-    portals:ES.portals,brushes:ES.brushes,navMesh:ES.navMesh};
+    portals:ES.portals,brushes:ES.brushes,navMesh:ES.navMesh,groups:ES.groups};
   return `// ─── ${d.name} ────\n(function () {\n  window.LEVELS = window.LEVELS || {};\n  window.LEVELS[${JSON.stringify(d.id)}] = ${JSON.stringify(d,null,2)};\n}());`;
 }
 document.getElementById('btn-export').addEventListener('click',()=>{document.getElementById('export-text').value=_serialize();document.getElementById('export-modal').classList.remove('hidden');});
@@ -1469,7 +1731,7 @@ document.getElementById('btn-do-import').addEventListener('click',()=>{
 document.getElementById('btn-load-lvl1').addEventListener('click',()=>{ if(!window.LEVELS?.level1){_setStatus('level1.js not loaded');return;} _loadLevel(window.LEVELS.level1); _setStatus('Loaded level1'); });
 document.getElementById('btn-new').addEventListener('click',()=>{
   if(!confirm('Clear current level?')) return;
-  ES.rooms=[]; ES.elevatedTiles=[]; ES.decoratives=[]; ES.lights=[]; ES.portals=[]; ES.standaloneTiles=[]; ES.brushes=[]; ES.navMesh=[]; selClear();
+  ES.rooms=[]; ES.elevatedTiles=[]; ES.decoratives=[]; ES.lights=[]; ES.portals=[]; ES.standaloneTiles=[]; ES.brushes=[]; ES.navMesh=[]; ES.groups=[]; selClear();
   ES.levelId='level_new'; ES.levelName='New Level'; ES.stepHeight=0.3; ES.playerStart={x:0,z:0};
   ['meta-name','meta-id','meta-steph','meta-spawnx','meta-spawnz'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value={['meta-name']:'New Level',['meta-id']:'level_new',['meta-steph']:'0.3',['meta-spawnx']:'0',['meta-spawnz']:'0'}[id]||''; });
   rebuildLevel(); _showPropsForSelection(); _setStatus('New level');
@@ -1478,7 +1740,7 @@ function _loadLevel(lvl) {
   ES.levelId=lvl.id||'level1'; ES.levelName=lvl.name||'Imported'; ES.stepHeight=lvl.stepHeight||0.3;
   ES.playerStart=lvl.playerStart||{x:0,z:0}; ES.rooms=lvl.rooms||[]; ES.elevatedTiles=lvl.elevatedTiles||[];
   ES.decoratives=lvl.decoratives||[]; ES.lights=lvl.lights||[]; ES.portals=lvl.portals||[];
-  ES.standaloneTiles=[]; ES.brushes=lvl.brushes||[]; ES.navMesh=lvl.navMesh||[]; selClear();
+  ES.standaloneTiles=[]; ES.brushes=lvl.brushes||[]; ES.navMesh=lvl.navMesh||[]; ES.groups=lvl.groups||[]; selClear();
   document.getElementById('meta-name').value=ES.levelName; document.getElementById('meta-id').value=ES.levelId;
   document.getElementById('meta-steph').value=ES.stepHeight; document.getElementById('meta-spawnx').value=ES.playerStart.x; document.getElementById('meta-spawnz').value=ES.playerStart.z;
   rebuildLevel(); _showPropsForSelection();
@@ -1517,5 +1779,5 @@ function animate() {
 animate();
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-_setStatus('Ready  ·  S=Select  R=Room  B=Brush  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  ·  Z=fly  X=reset cam');
+_setStatus('Ready  ·  S=Select  R=Room  B=Brush  T=Tile  E=Elev  V=Lava  D=Decor  L=Light  P=Spawn  N=Nav  ·  Z=fly  X=reset cam');
 rebuildLevel();

@@ -6,6 +6,29 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.9] - 2026-04-29
+### Added
+- **Groups / directories** in the Objects panel: select items then press **Ctrl+G** (or the ⊞ button) to group them into a named, collapsible directory entry
+  - Click a group header to select all its members (Ctrl+click adds to existing selection); all members light up in both the viewport and the panel
+  - Double-click a group name to rename it inline
+  - Click ▾ / the arrow to collapse/expand the group body; items are indented with a left border for visual hierarchy
+  - **×** button on the header ungroups (removes the container, keeps all items as ungrouped)
+  - An item can only belong to one group; grouping moves it out of any previous group automatically
+- **Ctrl+A**: select all items in the level at once
+- Groups survive export/import (serialized into the level file) and are fully undo-aware
+- Deleting items automatically removes their references from groups; empty groups are pruned
+
+## [1.4.8] - 2026-04-27
+### Added
+- **Nav Paint tool** (`N` key): click in the TOP view to add individual nav cells at tileMap elevation; Ctrl+click to erase; overlay activates automatically when painting — lets you hand-tune the nav mesh after a compile
+- **Trigger zone brush class**: change a brush's Class to `trigger` in the dialog or Properties panel — trigger zones render as a semi-transparent colored box with an edge wireframe (color/tint customisable) and are completely invisible in-game; properties include `Event` (onEnter / onLeave / zone / killzone), `Script ID`, and `Tag` — all stored in the exported level and stamped into `tileMap` as `.trigger` metadata for future game scripting
+- **Ramp-aware nav compilation**: `_compileNavMesh()` now correctly handles ramp rooms — each column/row of a ramp gets its actual per-step elevation stamped into the nav mesh rather than a flat `elevation=0`; also now includes elevated tiles in the compilation
+- Brush Class field surfaced in the Properties panel — change solid↔trigger at any time; face editor is disabled on trigger brushes with a hint that faces are invisible in game
+- Trigger zone entries in the Layers panel show `◈ trigger:<type>` instead of `⬛ brush`
+
+### Changed
+- `_compileNavMesh()` no longer stamps walkable nav tiles from trigger-class brushes (trigger zones are not walkable surfaces)
+
 ## [1.4.7] - 2026-04-26
 ### Added
 - **Brush tool** (`B` key): draw arbitrary-size solid boxes in the TOP view — each brush has independent Y min/max, a walkable toggle, and per-face colour/nodraw settings
