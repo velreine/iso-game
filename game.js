@@ -1491,7 +1491,34 @@ animate();
   const listEl  = document.getElementById('level-select-list');
   if (!overlay || !listEl) return;
 
-  // Load manifest and inject level scripts so window.LEVELS is populated
+  // Inject level scripts so window.LEVELS is populated
   try {
-    const r = await fetch('./levels/manifest.json');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const manifest = window.LEVEL_MANIFEST || { levels: [] };
+    await Promise.all((manifest.levels || []).map(entry =>
+      new Promise((resolve) => {
+        // Skip if already loaded
+        if (window.LEVELS && window.LEVELS[entry.id]) { resolve(); return; }
+        const s = document.createElement('script');
+        s.src     = './levels/' + entry.file;
+        s.onload  = resolve;
+        s.onerror = () => { console.warn('[level-select] failed to load', entry.file); resolve(); };
+        document.head.appendChild(s);
+      })
+    ));
+  } catch (e) {
+    console.warn('[level-select] error injecting level scripts:', e.message);
+  }
+
+  // Build buttons from whatever is now in window.LEVELS
+  const levels = window.LEVELS || {};
+  Object.keys(levels).forEach(id => {
+    const btn = document.createElement('button');
+    btn.className = 'level-btn';
+    btn.textContent = levels[id].name || id;
+    btn.addEventListener('click', () => {
+      overlay.classList.add('hidden');
+      loadLevel(id);
+    });
+    listEl.appendChild(btn);
+  });
+})();

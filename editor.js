@@ -1853,23 +1853,13 @@ document.getElementById('btn-do-import').addEventListener('click',()=>{
   catch(err) { alert('Import failed: '+err.message); }
 });
 // ── Load Level button — fetches manifest, lets user pick a level file ────────
-document.getElementById('btn-load-level').addEventListener('click', async () => {
+document.getElementById('btn-load-level').addEventListener('click', () => {
   const modal   = document.getElementById('load-level-modal');
   const hint    = document.getElementById('load-level-hint');
   const listEl  = document.getElementById('load-level-list');
   listEl.innerHTML = '';
-  hint.textContent = 'Fetching level list…';
   modal.classList.remove('hidden');
-  let entries = [];
-  try {
-    const r = await fetch('./levels/manifest.json');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const manifest = await r.json();
-    entries = manifest.levels || [];
-  } catch (e) {
-    hint.textContent = 'Could not load manifest.json: ' + e.message;
-    return;
-  }
+  const entries = (window.LEVEL_MANIFEST && window.LEVEL_MANIFEST.levels) || [];
   if (!entries.length) { hint.textContent = 'No levels found in manifest.'; return; }
   hint.textContent = 'Pick a level to load into the editor:';
   entries.forEach(entry => {
@@ -1877,26 +1867,20 @@ document.getElementById('btn-load-level').addEventListener('click', async () => 
     btn.className = 'level-pick-btn';
     btn.textContent = (entry.name || entry.id) + (entry.id ? '  (' + entry.id + ')' : '');
     btn.style.cssText = 'display:block;width:100%;margin:4px 0;padding:6px 10px;text-align:left;cursor:pointer;';
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', () => {
       hint.textContent = 'Loading ' + entry.file + '…';
       btn.disabled = true;
-      try {
-        const src = await fetch('./levels/' + entry.file).then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); });
-        const saved = window.LEVELS;
-        window.LEVELS = {};
-        // eslint-disable-next-line no-new-func
-        new Function(src)();
-        const keys = Object.keys(window.LEVELS);
-        if (!keys.length) throw new Error('No LEVELS entry found in file');
-        const lvl = window.LEVELS[entry.id] || window.LEVELS[keys[0]];
-        window.LEVELS = saved;
+      const s = document.createElement('script');
+      s.src = './levels/' + entry.file;
+      s.onload = () => {
+        const lvl = window.LEVELS && (window.LEVELS[entry.id] || window.LEVELS[Object.keys(window.LEVELS)[0]]);
+        if (!lvl) { hint.textContent = 'No LEVELS entry found in file'; btn.disabled = false; return; }
         _loadLevel(lvl);
         modal.classList.add('hidden');
         _setStatus('Loaded ' + (lvl.name || entry.id));
-      } catch (err) {
-        hint.textContent = 'Load failed: ' + err.message;
-        btn.disabled = false;
-      }
+      };
+      s.onerror = () => { hint.textContent = 'Failed to load ' + entry.file; btn.disabled = false; };
+      document.head.appendChild(s);
     });
     listEl.appendChild(btn);
   });
@@ -1919,4 +1903,47 @@ function _loadLevel(lvl) {
   // Migrate legacy decoratives + lights → entities on first load of old levels
   if (!ES.entities.length && (ES.decoratives.length || ES.lights.length)) {
     ES.decoratives.forEach(d=>{ES.entities.push({id:d.id||_nextId('entity'),entityType:'decor',x:d.x||0,y:d.y??0.5,z:d.z||0,w:d.w||1,h:d.h||1,d:d.d||1,color:d.color||0x606060});});
-    ES.lights.forEach(l=>{ES.entities.push({id:l.id||_next
+    ES.lights.forEach(l=>{ES.entities.push({id:l.id||_nextId('entity'),entityType:'light',x:l.x||0,y:l.y??2,z:l.z||0,color:l.color||0xffffff,intensity:l.intensity||1.5,distance:l.distance||10});});
+    ES.decoratives=[]; ES.lights=[];
+  }
+  selClear();
+  document.getElementById('meta-name').value=ES.levelName; document.getElementById('meta-id').value=ES.levelId;
+  document.getElementById('meta-steph').value=ES.stepHeight; document.getElementById('meta-spawnx').value=ES.playerStart.x; document.getElementById('meta-spawnz').value=ES.playerStart.z;
+  rebuildLevel(); _showPropsForSelection();
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+function _resize() {
+  const W=canvas.clientWidth, H=canvas.clientHeight;
+  renderer.setSize(W,H,false);
+  perspCam.aspect=(W/2)/(H/2); perspCam.updateProjectionMatrix();
+  _updateOrthoCameras(); _applyTopCam(); _applyFrontCam(); _applySideCam();
+}
+new ResizeObserver(_resize).observe(canvas.parentElement);
+_resize();
+
+function _renderVP(name, cam, isLive) {
+  const r=getViewportRect(name), W=canvas.clientWidth, H=canvas.clientHeight;
+  const bly=H-r.y-r.h;
+  renderer.setViewport(r.x,bly,r.w,r.h); renderer.setScissor(r.x,bly,r.w,r.h); renderer.setScissorTest(true);
+  renderer.clear(true,true,true);
+  scene.overrideMaterial=isLive?null:wireframeMat;
+  renderer.render(scene,cam);
+  scene.overrideMaterial=null;
+  if(!isLive) renderer.clearDepth();
+  renderer.render(helperScene,cam);
+}
+function animate() {
+  requestAnimationFrame(animate);
+  _flyTick();
+  _renderVP('persp',perspCam,true);
+  _renderVP('top',  topCam,  false);
+  _renderVP('front',frontCam,false);
+  _renderVP('side', sideCam, false);
+  renderer.setScissorTest(false);
+}
+animate();
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+_setStatus('Ready  ·  S=Select  B=Brush  E=Entity  N=Nav  ·  Z=fly  X=reset cam');
+rebuildLevel();

@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.1] - 2026-04-30
+### Fixed
+- **CORS / `file://` error** — all three `fetch()` calls that read level data now use `<script>` tag injection or `window.LEVEL_MANIFEST` instead:
+  - `levels/manifest.json` (required `fetch`) → `levels/manifest.js` (sets `window.LEVEL_MANIFEST`), loaded as a plain `<script>` tag in `index.html` and `editor.html`
+  - `game.js` `initLevelSelect`: replaced `fetch('./levels/manifest.json')` with direct read of `window.LEVEL_MANIFEST`
+  - `editor.js` Load Level modal: replaced `fetch` of manifest and `fetch`+`new Function` of level file text with script-tag injection; works under both `file://` and `http://`
+
+---
+
 ## [1.6.0] - 2026-04-30
 ### Added
 - **Editor: Load Level button** — replaces the old "Load level1" hardcoded button; opens a modal that reads `levels/manifest.json`, lists all available levels by name, then fetches and evals the selected `.js` file before calling `_loadLevel()` to rebuild the scene
@@ -523,4 +532,23 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - **Player cube** — `0.65 × 0.65 × 0.65` steel-blue box with white eye
   indicator on the front face
 - **Arrow-key movement** — grid-based logical position (`grid.x / grid.z`)
-  with exponential lerp smoothing toward 
+  with exponential lerp smoothing toward `playerMesh.position`
+- **Move cooldown** — `MOVE_DELAY = 0.13 s` prevents uncontrolled rapid steps
+- **Drop-shadow blob** — transparent `PlaneGeometry` that scales during jump
+- **Docker** — `nginx:1.25-alpine` container serving static files on port 8081;
+  healthcheck via `wget`
+
+---
+
+## [0.1.0] - 2026-04-19
+
+### Added
+- **Three.js r128 scene** — `WebGLRenderer` with antialiasing, PCFSoft shadow maps
+- **Isometric orthographic camera** — positioned at `(18, 18, 18)` for a true
+  45° iso angle; frustum resizes on window resize
+- **Stone tile floor** — 17 × 17 grid (`GRID_HALF = 8`); `BoxGeometry` with
+  `TILE_GAP = 0.06` gap; 10 random grey tones give a hand-laid look
+- **Three-light rig** — ambient (`0x8090b0`) + directional sun (`0xffe8c0`,
+  2 k shadow map) + fill light (`0x4060a0`)
+- **Exponential fog** — `FogExp2` density `0.032`
+- **nginx.conf** — gzip compression + 1-day `Cache-Control` header

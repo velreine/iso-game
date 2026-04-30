@@ -1399,4 +1399,59 @@ Extended the hover raycast to include `decorativeMeshes` alongside `tileMeshes`.
 
 When the winning hit is a decorative, the `hoverHighlight` plane is rescaled to the object's footprint (`scale.set((w+0.08)/0.92, 1, (d+0.08)/0.92)`) and repositioned flush with its base. The orange pulsing overlay (`0xff8800`) distinguishes decorative hovers from tile hovers (pink). The debug HUD emits `decorative:<id>` for each decorative hit in the list.
 
-Room 4 was expanded to xMin:9 xMax:22 zMin:-10 z
+Room 4 was expanded to xMin:9 xMax:22 zMin:-10 zMax:6. A perimeter fence is generated programmatically inside the level IIFE using `_panel`/`_post` helpers and concatenated into the decoratives array. The fence has four gaps — west (Room 1 entrance), north (Ramp 2 entrance), east and south (side exits) — with corner and gap posts marking each opening.
+
+<a name="stage-19"></a>
+## Stage 19 — Editor Load Level & Manifest Discovery (v1.6.0)
+
+### Goal
+
+Two workflow gaps closed: the editor had no way to load an existing level file (only a hardcoded "Load level1" button), and the game's level-select screen only ever showed one level even when multiple `.js` files existed in `levels/`.
+
+### Editor: Load Level button
+
+The hardcoded `btn-load-lvl1` button was replaced with a general `Load Level` button. Clicking it:
+
+1. Fetches `levels/manifest.json` and lists all entries in a new modal.
+2. On level selection, fetches the `.js` file text, evals it in an isolated scope (same sandboxing used by Import JS), and calls `_loadLevel()` with the resulting data.
+3. Restores `window.LEVELS` to its previous state so the fetch does not pollute the global registry.
+
+```js
+const src = await fetch('./levels/' + entry.file).then(r => r.text());
+const saved = window.LEVELS;
+window.LEVELS = {};
+new Function(src)();
+const lvl = window.LEVELS[entry.id] || window.LEVELS[Object.keys(window.LEVELS)[0]];
+window.LEVELS = saved;
+_loadLevel(lvl);
+```
+
+### Level discovery via manifest.json
+
+`levels/manifest.json` is a small file listing every available level:
+
+```json
+{
+  "levels": [
+    { "id": "level1", "name": "The Stone Keep",   "file": "level1.js" },
+    { "id": "level2", "name": "The Stone Keep 2",  "file": "level2.js" }
+  ]
+}
+```
+
+`initLevelSelect()` in `game.js` is now `async`. It fetches the manifest, injects each level as a `<script>` tag (skipping any already present in `window.LEVELS`), waits for all scripts to load, then builds the button list from the fully-populated `window.LEVELS`. The hardcoded `<script src="./levels/level1.js">` tag was removed from `index.html` — level loading is now entirely manifest-driven.
+
+```js
+await Promise.all((manifest.levels || []).map(entry =>
+  new Promise((resolve) => {
+    if (window.LEVELS?.[entry.id]) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = './levels/' + entry.file;
+    s.onload = resolve;
+    s.onerror = () => { console.warn('failed:', entry.file); resolve(); };
+    document.head.appendChild(s);
+  })
+));
+```
+
+Adding a new level now requires only: drop the `.js` file into `levels/` and add one line to `manifest.json`.
