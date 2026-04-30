@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.0] - 2026-04-30
+### Added
+- **`levels/manifest.json`** — authoritative list of level files served by nginx; add a new entry here to make a level visible everywhere without touching HTML
+- **Game: dynamic level discovery** — `index.html` now fetches `manifest.json` at startup and injects a `<script>` tag for each listed level file before loading `game.js`; the level-select menu picks them all up automatically via `window.LEVELS`
+- **Editor: Load Level** — replaces the hardcoded "Load level1" button with a `<select>` dropdown populated from `manifest.json` and a "Load Level" button; selecting an entry fetches and executes the level file, then calls `_loadLevel()` with the matching `window.LEVELS` entry
+
+---
+
 ## [1.5.0] - 2026-04-29
 ### Added
 - **Entity system** — unified `● Entity` tool (`E` key) replaces the old Decor, Light, and Spawn tools; click anywhere in the TOP view to open the Place Entity dialog with a type selector (`decor` / `light` / `spawn`) and type-specific fields

@@ -1852,7 +1852,41 @@ document.getElementById('btn-do-import').addEventListener('click',()=>{
   try { const bk=window.LEVELS; window.LEVELS={}; new Function(code)(); const keys=Object.keys(window.LEVELS); if(!keys.length) throw new Error('No LEVELS found'); _loadLevel(window.LEVELS[keys[0]]); window.LEVELS=bk; document.getElementById('import-modal').classList.add('hidden'); _setStatus('Imported'); }
   catch(err) { alert('Import failed: '+err.message); }
 });
-document.getElementById('btn-load-lvl1').addEventListener('click',()=>{ if(!window.LEVELS?.level1){_setStatus('level1.js not loaded');return;} _loadLevel(window.LEVELS.level1); _setStatus('Loaded level1'); });
+// Populate level dropdown from manifest
+(function () {
+  var sel = document.getElementById('lvl-select');
+  fetch('./levels/manifest.json')
+    .then(function (r) { return r.json(); })
+    .then(function (m) {
+      m.levels.forEach(function (f) {
+        var opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f.replace(/\.js$/, '');
+        sel.appendChild(opt);
+      });
+    })
+    .catch(function () {
+      var opt = document.createElement('option');
+      opt.value = 'level1.js'; opt.textContent = 'level1';
+      sel.appendChild(opt);
+    });
+})();
+document.getElementById('btn-load-level').addEventListener('click', function () {
+  var sel = document.getElementById('lvl-select');
+  var file = sel.value;
+  if (!file) { _setStatus('No level selected'); return; }
+  var id = file.replace(/\.js$/, '');
+  var s = document.createElement('script');
+  s.src = './levels/' + file;
+  s.onload = function () {
+    var lvl = window.LEVELS && window.LEVELS[id];
+    if (!lvl) { _setStatus('Level key not found: ' + id); return; }
+    _loadLevel(lvl);
+    _setStatus('Loaded ' + id);
+  };
+  s.onerror = function () { _setStatus('Failed to load ' + file); };
+  document.head.appendChild(s);
+});
 document.getElementById('btn-new').addEventListener('click',()=>{
   if(!confirm('Clear current level?')) return;
   ES.rooms=[]; ES.elevatedTiles=[]; ES.decoratives=[]; ES.lights=[]; ES.portals=[]; ES.standaloneTiles=[]; ES.brushes=[]; ES.navMesh=[]; ES.groups=[]; ES.entities=[]; selClear();

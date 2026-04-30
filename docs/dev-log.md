@@ -21,6 +21,10 @@ A step-by-step record of every feature added to the game, with the most importan
 13. [Stage 13 — Tile Elevation, Dais & Staircase](#stage-13)
 14. [Stage 14 — Scroll Zoom, Debug Raycast & Zoom HUD](#stage-14)
 15. [Stage 15 — Room 3 & Ramp Connection](#stage-15)
+16. [Stage 16 — Multi-Level Architecture](#stage-16)
+17. [Stage 17 — Room 4 & Full Loop](#stage-17)
+18. [Stage 18 — Decorative Raycast & Room 4 Fence](#stage-18)
+19. [Stage 19 — Level Manifest & Editor Load Level](#stage-19)
 
 ---
 
@@ -1356,8 +1360,11 @@ room3Light.intensity = 1.2 + Math.sin(t * 1.1 + 1.2) * 0.35;
 
 ```
 iso-game/
-├── index.html          # HTML shell — loads Three.js CDN + game.js
+├── index.html          # HTML shell — fetches manifest.json, injects level scripts, then game.js
 ├── game.js             # All game logic
+├── editor.html         # Level editor shell
+├── editor.js           # Level editor logic
+├── editor.css          # Level editor styles
 ├── style.css           # Fullscreen canvas + HUD styling
 ├── version.txt         # Current version string (e.g. 1.0.0)
 ├── CHANGELOG.md        # Per-version change history
@@ -1366,6 +1373,9 @@ iso-game/
 ├── docker-compose.yml  # Maps container port 80 → host 8081; host volume mounts
 ├── nginx.conf          # Gzip + 1-day cache headers
 ├── .dockerignore
+├── levels/
+│   ├── manifest.json   # Ordered list of level JS files to load
+│   └── level1.js       # The Stone Keep
 └── docs/
     └── dev-log.md      # This file
 ```
@@ -1395,3 +1405,44 @@ Extended the hover raycast to include `decorativeMeshes` alongside `tileMeshes`.
 When the winning hit is a decorative, the `hoverHighlight` plane is rescaled to the object's footprint (`scale.set((w+0.08)/0.92, 1, (d+0.08)/0.92)`) and repositioned flush with its base. The orange pulsing overlay (`0xff8800`) distinguishes decorative hovers from tile hovers (pink). The debug HUD emits `decorative:<id>` for each decorative hit in the list.
 
 Room 4 was expanded to xMin:9 xMax:22 zMin:-10 zMax:6. A perimeter fence is generated programmatically inside the level IIFE using `_panel`/`_post` helpers and concatenated into the decoratives array. The fence has four gaps — west (Room 1 entrance), north (Ramp 2 entrance), east and south (side exits) — with corner and gap posts marking each opening.
+
+<a name="stage-19"></a>
+## Stage 19 — Level Manifest & Editor Load Level (v1.6.0)
+
+Level discovery was hardcoded in both `index.html` (one `<script>` tag per level) and `editor.html` (a single "Load level1" button). Adding a second level required editing both HTML files by hand.
+
+A new `levels/manifest.json` lists the level files in load order:
+
+```json
+{
+  "levels": ["level1.js"]
+}
+```
+
+Adding a new level now means: export it from the editor, drop it in `levels/`, add its filename to the manifest. Nothing else.
+
+### Game: async manifest loader (index.html)
+
+The hardcoded `<script src="./levels/level1.js">` and `<script src="game.js">` tags were replaced with a small inline async loader that fetches the manifest, injects a `<script>` tag for each level file in order (awaiting each `onload`), then injects `game.js`. Because all level scripts complete before `game.js` runs, `window.LEVELS` is fully populated when `initLevelSelect()` executes its IIFE — every entry in the manifest automatically appears as a button in the level-select overlay.
+
+```javascript
+(async function () {
+  function injectScript(src) {
+    return new Promise(function (res, rej) {
+      var s = document.createElement('script');
+      s.src = src; s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+  var manifest = await fetch('./levels/manifest.json').then(r => r.json());
+  for (var i = 0; i < manifest.levels.length; i++)
+    await injectScript('./levels/' + manifest.levels[i]);
+  await injectScript('./game.js');
+})();
+```
+
+A `catch` block falls back to `level1.js` + `game.js` directly if the manifest cannot be fetched (e.g. development without a server).
+
+### Editor: Load Level dropdown (editor.html / editor.js)
+
+The hardcoded "Load level1" button was replaced with a `<select id="lvl-select">` dropdown and a "Load Level" button. On page load, `editor.js` fetches `manifest.json` and appends one `<option>` per entry. Clicking "Load Level" injects the selected file as a `<script>` tag, then calls `_loadLevel(window.LEVELS[id])` in the `onload` callback — the same function used by import and the old hardcoded button.
