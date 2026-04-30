@@ -154,6 +154,7 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="./levels/manifest.js"></script>
   <script>
   (async function () {
     function injectScript(src) {
@@ -163,14 +164,9 @@
         document.head.appendChild(s);
       });
     }
-    try {
-      var manifest = await fetch('./levels/manifest.json').then(function (r) { return r.json(); });
-      for (var i = 0; i < manifest.levels.length; i++) {
-        await injectScript('./levels/' + manifest.levels[i]);
-      }
-    } catch (e) {
-      console.warn('levels/manifest.json unavailable, loading level1.js directly', e);
-      await injectScript('./levels/level1.js');
+    var levels = (window.LEVEL_MANIFEST && window.LEVEL_MANIFEST.levels) || ['level1.js'];
+    for (var i = 0; i < levels.length; i++) {
+      await injectScript('./levels/' + levels[i]);
     }
     await injectScript('./game.js');
   })();

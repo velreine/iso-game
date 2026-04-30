@@ -1855,21 +1855,13 @@ document.getElementById('btn-do-import').addEventListener('click',()=>{
 // Populate level dropdown from manifest
 (function () {
   var sel = document.getElementById('lvl-select');
-  fetch('./levels/manifest.json')
-    .then(function (r) { return r.json(); })
-    .then(function (m) {
-      m.levels.forEach(function (f) {
-        var opt = document.createElement('option');
-        opt.value = f;
-        opt.textContent = f.replace(/\.js$/, '');
-        sel.appendChild(opt);
-      });
-    })
-    .catch(function () {
-      var opt = document.createElement('option');
-      opt.value = 'level1.js'; opt.textContent = 'level1';
-      sel.appendChild(opt);
-    });
+  var levels = (window.LEVEL_MANIFEST && window.LEVEL_MANIFEST.levels) || ['level1.js'];
+  levels.forEach(function (f) {
+    var opt = document.createElement('option');
+    opt.value = f;
+    opt.textContent = f.replace(/\.js$/, '');
+    sel.appendChild(opt);
+  });
 })();
 document.getElementById('btn-load-level').addEventListener('click', function () {
   var sel = document.getElementById('lvl-select');

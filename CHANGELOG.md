@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.1] - 2026-04-30
+### Fixed
+- **CORS error on `file://`** — `levels/manifest.json` (required `fetch()`) replaced with `levels/manifest.js` (sets `window.LEVEL_MANIFEST`), loaded as a plain `<script>` tag in both `index.html` and `editor.html`; works under both `file://` and `http://localhost:8081`
+### Changed
+- `index.html` and `editor.html` now include `<script src="./levels/manifest.js">` before the level loader / `editor.js`; the fetch + try/catch block is replaced by a direct read of `window.LEVEL_MANIFEST.levels`
+
+---
+
 ## [1.6.0] - 2026-04-30
 ### Added
 - **`levels/manifest.json`** — authoritative list of level files served by nginx; add a new entry here to make a level visible everywhere without touching HTML
