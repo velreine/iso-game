@@ -21,6 +21,7 @@ A step-by-step record of every feature added to the game, with the most importan
 13. [Stage 13 — Tile Elevation, Dais & Staircase](#stage-13)
 14. [Stage 14 — Scroll Zoom, Debug Raycast & Zoom HUD](#stage-14)
 15. [Stage 15 — Room 3 & Ramp Connection](#stage-15)
+19. [Stage 19 — Editor Load Level & Manifest Discovery (v1.6.0)](#stage-19)
 
 ---
 
@@ -1356,7 +1357,11 @@ room3Light.intensity = 1.2 + Math.sin(t * 1.1 + 1.2) * 0.35;
 
 ```
 iso-game/
-├── index.html          # HTML shell — loads Three.js CDN + game.js
+├── index.html          # HTML shell — loads Three.js CDN + game.js (levels injected via manifest)
+├── levels/
+│   ├── manifest.json   # Level registry — id, name, file for each level
+│   ├── level1.js       # The Stone Keep
+│   └── level2.js       # The Stone Keep 2
 ├── game.js             # All game logic
 ├── style.css           # Fullscreen canvas + HUD styling
 ├── version.txt         # Current version string (e.g. 1.0.0)
@@ -1394,4 +1399,4 @@ Extended the hover raycast to include `decorativeMeshes` alongside `tileMeshes`.
 
 When the winning hit is a decorative, the `hoverHighlight` plane is rescaled to the object's footprint (`scale.set((w+0.08)/0.92, 1, (d+0.08)/0.92)`) and repositioned flush with its base. The orange pulsing overlay (`0xff8800`) distinguishes decorative hovers from tile hovers (pink). The debug HUD emits `decorative:<id>` for each decorative hit in the list.
 
-Room 4 was expanded to xMin:9 xMax:22 zMin:-10 zMax:6. A perimeter fence is generated programmatically inside the level IIFE using `_panel`/`_post` helpers and concatenated into the decoratives array. The fence has four gaps — west (Room 1 entrance), north (Ramp 2 entrance), east and south (side exits) — with corner and gap posts marking each opening.
+Room 4 was expanded to xMin:9 xMax:22 zMin:-10 z

@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.0] - 2026-04-30
+### Added
+- **Editor: Load Level button** — replaces the old "Load level1" hardcoded button; opens a modal that reads `levels/manifest.json`, lists all available levels by name, then fetches and evals the selected `.js` file before calling `_loadLevel()` to rebuild the scene
+- **Level discovery via `levels/manifest.json`** — a JSON manifest lists every level by `id`, `name`, and `file`; `initLevelSelect()` in `game.js` is now async and fetches the manifest on startup, injects each level script dynamically, then populates the level-select screen — adding a new level now only requires dropping its `.js` file in `levels/` and adding one entry to `manifest.json`
+- `levels/manifest.json` created with entries for `level1` (The Stone Keep) and `level2` (The Stone Keep 2)
+### Changed
+- `index.html` no longer hard-codes `<script src="./levels/level1.js">`; all level loading goes through the manifest
+
 ## [1.5.0] - 2026-04-29
 ### Added
 - **Entity system** — unified `● Entity` tool (`E` key) replaces the old Decor, Light, and Spawn tools; click anywhere in the TOP view to open the Place Entity dialog with a type selector (`decor` / `light` / `spawn`) and type-specific fields
@@ -515,23 +523,4 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - **Player cube** — `0.65 × 0.65 × 0.65` steel-blue box with white eye
   indicator on the front face
 - **Arrow-key movement** — grid-based logical position (`grid.x / grid.z`)
-  with exponential lerp smoothing toward `playerMesh.position`
-- **Move cooldown** — `MOVE_DELAY = 0.13 s` prevents uncontrolled rapid steps
-- **Drop-shadow blob** — transparent `PlaneGeometry` that scales during jump
-- **Docker** — `nginx:1.25-alpine` container serving static files on port 8081;
-  healthcheck via `wget`
-
----
-
-## [0.1.0] - 2026-04-19
-
-### Added
-- **Three.js r128 scene** — `WebGLRenderer` with antialiasing, PCFSoft shadow maps
-- **Isometric orthographic camera** — positioned at `(18, 18, 18)` for a true
-  45° iso angle; frustum resizes on window resize
-- **Stone tile floor** — 17 × 17 grid (`GRID_HALF = 8`); `BoxGeometry` with
-  `TILE_GAP = 0.06` gap; 10 random grey tones give a hand-laid look
-- **Three-light rig** — ambient (`0x8090b0`) + directional sun (`0xffe8c0`,
-  2 k shadow map) + fill light (`0x4060a0`)
-- **Exponential fog** — `FogExp2` density `0.032`
-- **nginx.conf** — gzip compression + 1-day `Cache-Control` header
+  with exponential lerp smoothing toward 

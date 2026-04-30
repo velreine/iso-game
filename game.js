@@ -1484,19 +1484,14 @@ document.getElementById('btn-close').addEventListener('click', closeSettings);
 animate();
 
 // ── Level select menu ─────────────────────────────────────────────────────
-(function initLevelSelect() {
+// Reads levels/manifest.json, injects each level script, then builds the list.
+// Falls back to whatever is already in window.LEVELS if the manifest is absent.
+(async function initLevelSelect() {
   const overlay = document.getElementById('level-select-overlay');
   const listEl  = document.getElementById('level-select-list');
   if (!overlay || !listEl) return;
-  const levels = window.LEVELS || {};
-  Object.keys(levels).forEach(id => {
-    const btn = document.createElement('button');
-    btn.className = 'level-btn';
-    btn.textContent = levels[id].name || id;
-    btn.addEventListener('click', () => {
-      overlay.classList.add('hidden');
-      loadLevel(id);
-    });
-    listEl.appendChild(btn);
-  });
-})();
+
+  // Load manifest and inject level scripts so window.LEVELS is populated
+  try {
+    const r = await fetch('./levels/manifest.json');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
