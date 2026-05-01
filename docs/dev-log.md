@@ -22,6 +22,7 @@ A step-by-step record of every feature added to the game, with the most importan
 14. [Stage 14 — Scroll Zoom, Debug Raycast & Zoom HUD](#stage-14)
 15. [Stage 15 — Room 3 & Ramp Connection](#stage-15)
 19. [Stage 19 — Editor Load Level & Manifest Discovery (v1.6.0)](#stage-19)
+20. [Stage 20 — Navmesh Navigation Fix (v1.6.2)](#stage-20)
 
 ---
 
@@ -1455,3 +1456,80 @@ await Promise.all((manifest.levels || []).map(entry =>
 ```
 
 Adding a new level now requires only: drop the `.js` file into `levels/` and add one line to `manifest.json`.
+
+---
+
+<a name="stage-20"></a>
+## Stage 20 — Navmesh Navigation Fix (v1.6.2)
+
+### Goal
+
+Fix click-to-move so it pathfinds to the actual clicked cell on brush-based levels, and ensure non-walkable brushes (lava, pillars, altar) are correctly excluded from the navmesh.
+
+---
+
+### Root Cause: Mesh Center vs Hit Point
+
+The hover raycast recovered the target cell by rounding the **mesh's world position**:
+
+```js
+// Before — broken for large brushes
+const tx = Math.round(bestObj.position.x);
+const tz = Math.round(bestObj.position.z);
+```
+
+For a brush like `b_main` (17×17 cells), the mesh is centered at `(0, 0)`, so every click anywhere on the main floor resolved to tile `(0, 0)` and pathfound there. The same mesh-center lookup was used in `getKey` (which ranks hits by elevation) and in the debug HUD.
+
+The fix uses the **ray–surface intersection point** instead:
+
+```js
+// After — correct for any mesh size
+const tx = Math.round(best.point.x);
+const tz = Math.round(best.point.z);
+```
+
+`best.point` is the exact world coordinate where the camera ray touched the mesh. Rounding it gives the integer cell coordinate regardless of how large the brush is.
+
+---
+
+### Hit Ranking: `h.point.y` Instead of tileMap Lookup
+
+`getKey` — used to pick the topmost surface when the ray passes through multiple meshes — suffered the same bug:
+
+```js
+// Before — always 0 for b_main (looked up elevation at mesh center (0,0))
+const getKey = h => h.object.userData?.kind === 'decorative'
+  ? h.point.y
+  : (tileMap[Math.round(h.object.position.x)]?.[Math.round(h.object.position.z)]?.elevation || 0);
+```
+
+The fix is to use the actual intersection Y for every hit. For a floor brush at elevation 0 the top face is at `y = 0`; for the raised platform at elevation 0.9 the top face is at `y = 0.9`. The highest-Y hit is naturally the topmost visible surface:
+
+```js
+// After — elevation-agnostic, works for any mesh shape
+const getKey = h => h.point.y;
+```
+
+---
+
+### Non-Walkable Brush Blocking
+
+`_bakeNav` (in `level1.js`) correctly skips non-walkable brushes. But the walkable floor brush (`b_main`) covers the same XZ footprint as the lava pit (`b_lava`) and pillar positions. Its cells were stamped walkable first, leaving those positions open to the pathfinder.
+
+`buildLevel` now runs a second pass after the navMesh stamp that forces any cell under a non-walkable solid brush to `walkable: false`:
+
+```js
+for (const brush of (data.brushes || [])) {
+  if (brush.brushClass !== 'solid' || brush.walkable) continue;
+  for (let x = brush.xMin; x <= brush.xMax; x++) {
+    for (let z = brush.zMin; z <= brush.zMax; z++) {
+      if (tileMap[x]?.[z]) tileMap[x][z].walkable = false;
+    }
+  }
+}
+```
+
+This correctly blocks:
+- **Lava pit** (`b_lava`, x:4–7, z:4–7) — pathfinder routes around it
+- **Corridor pillars** (`b_pill_*`) — the two blocked cells at z=8 funnel the path through the single open cell between them
+- **Platform altar** (`b_altar`, x:0, z:19) — the altar cell is impassable; adjacent platform cells remain walkable

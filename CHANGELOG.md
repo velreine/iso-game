@@ -6,6 +6,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.2] - 2026-05-01
+### Fixed
+- **Click-to-move broken on brush-based levels** — hover raycast used `bestObj.position.x/z` (the mesh center) to resolve the target cell; for large brushes (e.g. the 17×17 main floor) this always resolved to the brush's geometric center, so every click pathfound to (0, 0). Fixed by using `best.point.x/z` (the actual ray–surface intersection) to find the hovered cell.
+- **Hit-ranking used stale mesh-center elevation** — `getKey` looked up elevation via `tileMap[Math.round(position.x)][Math.round(position.z)]`; same mesh-center bug meant the elevated-room brush always scored 0. Simplified to `h.point.y` which directly gives the surface height for any mesh shape.
+- **Debug raycast HUD showed wrong tile coords** — same position-vs-point bug in the debug overlay; now uses `Math.round(h.point.x/z)`.
+- **Non-walkable brushes (lava, pillars, altar) were pathfindable** — `_bakeNav` correctly excluded them, but the walkable floor brush beneath them stamped those cells as walkable first. `buildLevel` now applies a second pass after the navMesh stamp that marks every cell under a non-walkable solid brush as `walkable: false`.
+
 ## [1.6.1] - 2026-04-30
 ### Fixed
 - **CORS / `file://` error** — all three `fetch()` calls that read level data now use `<script>` tag injection or `window.LEVEL_MANIFEST` instead:

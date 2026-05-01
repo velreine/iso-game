@@ -407,6 +407,19 @@ function buildLevel(data) {
     }
   }
 
+  // Block cells covered by non-walkable solid brushes (lava, pillars, altar, etc.).
+  // The navMesh stamps cells from walkable brushes; a non-walkable brush sitting on
+  // top of a walkable one (e.g. lava pit over the main floor) must override those
+  // cells so the pathfinder treats them as impassable.
+  for (const brush of (data.brushes || [])) {
+    if (brush.brushClass !== 'solid' || brush.walkable) continue;
+    for (let x = brush.xMin; x <= brush.xMax; x++) {
+      for (let z = brush.zMin; z <= brush.zMax; z++) {
+        if (tileMap[x]?.[z]) tileMap[x][z].walkable = false;
+      }
+    }
+  }
+
   // Portal tiles — store metadata so tryMove can trigger transitions
   for (const p of (data.portals || [])) {
     if (tileMap[p.x]?.[p.z]) {
@@ -1207,12 +1220,9 @@ function animate() {
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObjects([...tileMeshes, ...decorativeMeshes, ...entityMeshes]);
     if (hits.length > 0) {
-      // Pick the best hit. Decoratives rank by actual hit-point Y (they're tall
-      // objects whose side faces sit above floor level). Tiles rank by elevation
-      // then hitY — the same logic that handles isometric stair ambiguity.
-      const getKey = h => h.object.userData?.kind === 'decorative'
-        ? h.point.y
-        : (tileMap[Math.round(h.object.position.x)]?.[Math.round(h.object.position.z)]?.elevation || 0);
+      // Rank all hits by the Y of the actual intersection point — higher surface wins.
+      // Works for individual tile meshes (1×1) and large brush meshes (N×M) alike.
+      const getKey = h => h.point.y;
       const best     = hits.reduce((a, b) => getKey(b) > getKey(a) ? b : a, hits[0]);
       const bestObj  = best.object;
       const isDecor  = bestObj.userData?.kind === 'decorative';
@@ -1239,8 +1249,8 @@ function animate() {
         // ── Tile hit ────────────────────────────────────────────────────────
         hoveredDecorId = null;
         hoverHighlight.scale.set(1, 1, 1);
-        const tx = Math.round(bestObj.position.x);
-        const tz = Math.round(bestObj.position.z);
+        const tx = Math.round(best.point.x);
+        const tz = Math.round(best.point.z);
         const td = tileMap[tx]?.[tz];
         hoveredTile = td ? { x: tx, z: tz, type: td.type, walkable: td.walkable } : null;
         hoverHighlight.position.x = tx;
@@ -1271,8 +1281,8 @@ function animate() {
           if (h.object.userData?.kind === 'decorative') {
             return `  [${i}] decorative:${h.object.userData.id}  hitY:${hy}${mark}`;
           }
-          const hx   = Math.round(h.object.position.x);
-          const hz   = Math.round(h.object.position.z);
+          const hx   = Math.round(h.point.x);
+          const hz   = Math.round(h.point.z);
           const tile = tileMap[hx]?.[hz];
           const he   = (tile?.elevation || 0).toFixed(2);
           const type = tile?.type     ?? 'unknown';
