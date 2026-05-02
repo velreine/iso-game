@@ -279,6 +279,21 @@
     </div>
   </div>
 
+  <!-- ── Viewport context menu ────────────────────────────────────────────── -->
+  <div id="ctx-menu" class="ctx-menu hidden">
+    <div class="ctx-title" id="ctx-title">View Options</div>
+    <div class="ctx-sep"></div>
+    <label class="ctx-item"><input type="checkbox" id="ctx-snap-tile"> Snap to Tile</label>
+    <label class="ctx-item"><input type="checkbox" id="ctx-snap-intersection"> Snap to Tile Intersection</label>
+    <!-- 3D-only: grid visibility toggles -->
+    <div id="ctx-grid-section" class="hidden">
+      <div class="ctx-sep"></div>
+      <label class="ctx-item"><input type="checkbox" id="ctx-grid-xz"> Grid XZ (floor)</label>
+      <label class="ctx-item"><input type="checkbox" id="ctx-grid-xy"> Grid XY (front)</label>
+      <label class="ctx-item"><input type="checkbox" id="ctx-grid-zy"> Grid ZY (side)</label>
+    </div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="./levels/manifest.js"></script>
   <script src="editor.js"></script>

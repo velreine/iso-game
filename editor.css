@@ -456,6 +456,44 @@ html, body {
 .hint-row { font-size: 10px; color: var(--text-hint); }
 .hint-row span { flex: 1; }
 
+/* ── Viewport context menu ────────────────────────────────────────────────── */
+.ctx-menu {
+  position: fixed;
+  background: #181828;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 0;
+  min-width: 200px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  z-index: 300;
+  user-select: none;
+}
+.ctx-menu.hidden { display: none; }
+.ctx-title {
+  padding: 5px 12px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-hint);
+}
+.ctx-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 0;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.ctx-item:hover { background: rgba(255,255,255,0.06); }
+.ctx-item input[type="checkbox"] { accent-color: var(--accent, #6688ff); cursor: pointer; }
+
 /* ── Modals ───────────────────────────────────────────────────────────────── */
 .modal {
   position: fixed;

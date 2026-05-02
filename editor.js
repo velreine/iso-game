@@ -3,8 +3,26 @@
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const TILE_SIZE      = 1.0;
-// Snap a world coordinate to the nearest 0.5-unit grid position.
-const snapHalf = v => Math.round(v * 2) / 2;
+// Per-viewport snap settings (tile = cell centres, intersection = grid line crossings).
+const _vpSnap = {
+  top:   { tile: true,  intersection: false },
+  front: { tile: true,  intersection: false },
+  side:  { tile: true,  intersection: false },
+  persp: { tile: true,  intersection: false },
+};
+
+// Snap a world coordinate according to the active snap settings for a viewport.
+// tile only        → cell centres  (0.5, 1.5, 2.5 …)
+// intersection only→ grid crossings (0, 1, 2 …)
+// both             → 0.5-unit steps  (0, 0.5, 1, 1.5 …)
+// neither          → free (no snap)
+function snapGrid(v, vp = 'top') {
+  const s = _vpSnap[vp] || _vpSnap.top;
+  if (s.tile && s.intersection) return Math.round(v * 2) / 2;
+  if (s.tile)                   return (Math.round(v / TILE_SIZE - 0.5) + 0.5) * TILE_SIZE;
+  if (s.intersection)           return Math.round(v / TILE_SIZE) * TILE_SIZE;
+  return v;
+}
 const TILE_THICKNESS = 0.22;
 const TILE_GAP       = 0.06;
 const STEP_H         = 0.3;
@@ -783,7 +801,58 @@ const DRAG_THRESHOLD = 5; // px before drag is recognised as a drag vs click
 let _dragDistance = 0;
 
 // ── Mouse events ──────────────────────────────────────────────────────────────
-canvas.addEventListener('contextmenu', e => e.preventDefault());
+// ── Viewport context menu ─────────────────────────────────────────────────────
+const _ctxMenu        = document.getElementById('ctx-menu');
+const _ctxTitle       = document.getElementById('ctx-title');
+const _ctxSnapT       = document.getElementById('ctx-snap-tile');
+const _ctxSnapI       = document.getElementById('ctx-snap-intersection');
+const _ctxGridSection = document.getElementById('ctx-grid-section');
+const _ctxGridXZ      = document.getElementById('ctx-grid-xz');
+const _ctxGridXY      = document.getElementById('ctx-grid-xy');
+const _ctxGridZY      = document.getElementById('ctx-grid-zy');
+const _vpLabels = { top:'Top (XZ)', front:'Front (XY)', side:'Side (ZY)', persp:'3D' };
+let _ctxVP = null;
+
+// Which grids are visible in the 3D (persp) view
+const _perspGridVis = { xz: true, xy: true, zy: true };
+
+function _showCtxMenu(vp, screenX, screenY) {
+  _ctxVP = vp;
+  _ctxTitle.textContent = (_vpLabels[vp] || vp) + ' Options';
+  _ctxSnapT.checked = _vpSnap[vp].tile;
+  _ctxSnapI.checked = _vpSnap[vp].intersection;
+  // Show grid toggles only for the 3D view
+  if (vp === 'persp') {
+    _ctxGridXZ.checked = _perspGridVis.xz;
+    _ctxGridXY.checked = _perspGridVis.xy;
+    _ctxGridZY.checked = _perspGridVis.zy;
+    _ctxGridSection.classList.remove('hidden');
+  } else {
+    _ctxGridSection.classList.add('hidden');
+  }
+  _ctxMenu.classList.remove('hidden');
+  // Keep menu inside the window
+  const mw = _ctxMenu.offsetWidth || 200, mh = _ctxMenu.offsetHeight || 120;
+  _ctxMenu.style.left = Math.min(screenX, window.innerWidth  - mw - 4) + 'px';
+  _ctxMenu.style.top  = Math.min(screenY, window.innerHeight - mh - 4) + 'px';
+}
+function _hideCtxMenu() { _ctxMenu.classList.add('hidden'); _ctxVP = null; }
+
+_ctxSnapT.addEventListener('change', () => { if (_ctxVP) _vpSnap[_ctxVP].tile         = _ctxSnapT.checked; });
+_ctxSnapI.addEventListener('change', () => { if (_ctxVP) _vpSnap[_ctxVP].intersection = _ctxSnapI.checked; });
+_ctxGridXZ.addEventListener('change', () => { _perspGridVis.xz = _ctxGridXZ.checked; });
+_ctxGridXY.addEventListener('change', () => { _perspGridVis.xy = _ctxGridXY.checked; });
+_ctxGridZY.addEventListener('change', () => { _perspGridVis.zy = _ctxGridZY.checked; });
+
+document.addEventListener('mousedown', e => { if (!_ctxMenu.contains(e.target)) _hideCtxMenu(); });
+document.addEventListener('keydown',   e => { if (e.key === 'Escape') _hideCtxMenu(); });
+
+canvas.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (_dragDistance > DRAG_THRESHOLD) return; // was a drag, not a click
+  const vp = getViewportAt(e.offsetX, e.offsetY);
+  if (vp) _showCtxMenu(vp, e.clientX, e.clientY);
+});
 
 canvas.addEventListener('mousedown', e => {
   const cx=e.offsetX, cy=e.offsetY;
@@ -890,7 +959,7 @@ function _onLeftDown(cx, cy, ctrl) {
   if ((ES.tool==='room'||ES.tool==='brush') && vp==='top') {
     const wp=topToWorld(cx,cy);
     if (wp) {
-      ES.drawing=true; ES.drawStart=ES.drawEnd={x:snapHalf(wp.x),z:snapHalf(wp.z)};
+      ES.drawing=true; ES.drawStart=ES.drawEnd={x:snapGrid(wp.x),z:snapGrid(wp.z)};
       _showDrawRect(true); _updateDrawRect(); _updatePreviewBox();
     }
     return;
@@ -1061,13 +1130,13 @@ function _onMouseMove(cx, cy, dx, dy) {
   // Room / brush draw
   if (mouseButtons.left && (ES.tool==='room'||ES.tool==='brush') && ES.drawing && vp==='top') {
     const wp=topToWorld(cx,cy);
-    if (wp) { ES.drawEnd={x:snapHalf(wp.x),z:snapHalf(wp.z)}; _updateDrawRect(); _updatePreviewBox(); }
+    if (wp) { ES.drawEnd={x:snapGrid(wp.x),z:snapGrid(wp.z)}; _updateDrawRect(); _updatePreviewBox(); }
   }
 
   // Hover highlight (top view only, non-drag)
   if (vp==='top'&&!mouseButtons.left) {
     const wp=topToWorld(cx,cy);
-    if(wp) { hoverMesh.position.set(snapHalf(wp.x),0.01,snapHalf(wp.z)); hoverMesh.visible=true; }
+    if(wp) { hoverMesh.position.set(snapGrid(wp.x),0.01,snapGrid(wp.z)); hoverMesh.visible=true; }
   } else if(vp!=='top') hoverMesh.visible=false;
 
   // Cursor feedback in select mode
@@ -2491,8 +2560,10 @@ function _renderVP(name, cam, isLive) {
   const _savedVis = {};
   _axesToHide.forEach(ax=>{ _savedVis[ax]=handleMeshes[ax]?.visible; if(handleMeshes[ax]) handleMeshes[ax].visible=false; });
   // Each ortho view only shows its own grid to prevent other grids projecting
-  // edge-on and overdrawing the axis lines. Persp shows all three.
-  const _gridVis = { top:[true,false,false], front:[false,true,false], side:[false,false,true], persp:[true,true,true] }[name] || [true,true,true];
+  // edge-on and overdrawing the axis lines. Persp respects per-grid toggles.
+  const _gridVis = name === 'persp'
+    ? [_perspGridVis.xz, _perspGridVis.xy, _perspGridVis.zy]
+    : ({ top:[true,false,false], front:[false,true,false], side:[false,false,true] }[name] || [true,true,true]);
   [gridTop,gridFront,gridSide].forEach((g,i)=>{ g.visible=_gridVis[i]; });
   renderer.render(helperScene,cam);
   [gridTop,gridFront,gridSide].forEach(g=>{ g.visible=true; });
