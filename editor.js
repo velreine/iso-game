@@ -592,6 +592,21 @@ function _raycastLevel(cx, cy, vp) {
 let mouseButtons = { left:false, right:false, middle:false };
 let lastMouse    = { x:0, y:0 };
 let activeVP     = null;
+let _lastHoverVP = 'top';  // last viewport the mouse was over — drives arrow keys
+
+// Cache outline divs once DOM is ready
+const _vpOutlines = {};
+['persp','top','front','side'].forEach(n => {
+  _vpOutlines[n] = document.getElementById('vp-outline-' + n);
+});
+
+function _setVPHighlight(vp) {
+  if (_lastHoverVP === vp) return;
+  _lastHoverVP = vp;
+  Object.entries(_vpOutlines).forEach(([n, el]) => {
+    if (el) el.classList.toggle('active', n === vp);
+  });
+}
 
 // Fly-cam
 let _flyMode    = false;
@@ -644,6 +659,10 @@ window.addEventListener('mousemove', e => {
   _dragDistance+=Math.abs(dx)+Math.abs(dy);
   lastMouse={x:cx,y:cy};
   _onMouseMove(cx,cy,dx,dy);
+});
+
+window.addEventListener('mouseleave', () => {
+  Object.values(_vpOutlines).forEach(el => { if(el) el.classList.remove('active'); });
 });
 
 canvas.addEventListener('wheel', e => {
@@ -786,7 +805,13 @@ function _onLeftUp(ctrl) {
 
 // ── Mouse move ────────────────────────────────────────────────────────────────
 function _onMouseMove(cx, cy, dx, dy) {
-  const vp=activeVP||getViewportAt(cx,cy);
+  // Use activeVP (locked on mousedown) when a button is held so drags don't
+  // jump viewport mid-gesture.  For plain hover, always compute fresh.
+  const hoverVP = getViewportAt(cx, cy);
+  const vp = (mouseButtons.left || mouseButtons.middle || mouseButtons.right)
+    ? (activeVP || hoverVP)
+    : hoverVP;
+  _setVPHighlight(hoverVP);
 
   // Handle resize
   if (_dragHandle && mouseButtons.left) {
@@ -964,7 +989,7 @@ function _finishMarquee(cssStart, cssEnd, vp, additive) {
 }
 
 // ── Arrow key + Ctrl+D movement / duplication ─────────────────────────────────
-function _moveSelection(dx, dz) {
+function _moveSelection(dx, dz, dy=0) {
   if (!ES.selection.length) return;
   _pushUndo();
   ES.selection.forEach(s => {
@@ -979,9 +1004,10 @@ function _moveSelection(dx, dz) {
       const l=ES.lights.find(l=>l.id===s.id); if(l) { l.x+=dx; l.z+=dz; }
     } else if (s.kind==='brush') {
       const b=ES.brushes.find(b=>b.id===s.id);
-      if(b) { b.xMin+=dx; b.xMax+=dx; b.zMin+=dz; b.zMax+=dz; }
+      if(b) { b.xMin+=dx; b.xMax+=dx; b.zMin+=dz; b.zMax+=dz; b.yMin+=dy; b.yMax+=dy; }
     } else if (s.kind==='entity') {
-      const e=ES.entities.find(e=>e.id===s.id); if(e) { e.x+=dx; e.z+=dz; }
+      const e=ES.entities.find(e=>e.id===s.id);
+      if(e) { e.x+=dx; e.z+=dz; e.y=(e.y??0)+dy; }
     }
   });
   rebuildLevel();
@@ -1490,11 +1516,30 @@ window.addEventListener('keydown',e=>{
     _setStatus(`${ES.selection.length} item(s) selected`);
   }
 
-  // Arrow keys — move selection
-  if(e.key==='ArrowLeft')  { e.preventDefault(); _moveSelection(-1,0); }
-  if(e.key==='ArrowRight') { e.preventDefault(); _moveSelection(1,0); }
-  if(e.key==='ArrowUp')    { e.preventDefault(); _moveSelection(0,-1); }
-  if(e.key==='ArrowDown')  { e.preventDefault(); _moveSelection(0,1); }
+  // Arrow keys — move selection, direction depends on hovered viewport
+  // top  (XZ): ←/→ = ±X,  ↑/↓ = ±Z
+  // front(XY): ←/→ = ±X,  ↑/↓ = ±Y
+  // side (ZY): ←/→ = ±Z,  ↑/↓ = ±Y
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+    e.preventDefault();
+    const vp = _lastHoverVP;
+    const neg = (e.key==='ArrowLeft'||e.key==='ArrowUp') ? -1 : 1;
+    const horiz = (e.key==='ArrowLeft'||e.key==='ArrowRight');
+    if (vp==='top') {
+      if (horiz) _moveSelection(neg, 0, 0);
+      else        _moveSelection(0, neg, 0);
+    } else if (vp==='front') {
+      if (horiz) _moveSelection(neg, 0, 0);
+      else        _moveSelection(0, 0, -neg);
+    } else if (vp==='side') {
+      if (horiz) _moveSelection(0, neg, 0);
+      else        _moveSelection(0, 0, -neg);
+    } else {
+      // persp / fallback: top behaviour
+      if (horiz) _moveSelection(neg, 0, 0);
+      else        _moveSelection(0, neg, 0);
+    }
+  }
 });
 
 window.addEventListener('keyup',e=>{ _heldKeys.delete(e.key.toLowerCase()); });
