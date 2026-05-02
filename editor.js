@@ -260,11 +260,19 @@ let tileMeshes=[], wallMeshes=[], decorMeshes=[], lightMeshes=[], standaloneMs=[
 // Nav mesh overlay lives in helperScene (never wireframed)
 const navOverlayGroup = new THREE.Group();
 helperScene.add(navOverlayGroup);
+
+// Edge-outline overlays for solid brushes (helperScene — never wireframed)
+const brushEdgeGroup = new THREE.Group();
+helperScene.add(brushEdgeGroup);
 const _navMat = new THREE.MeshBasicMaterial({ color:0x00ff88, transparent:true, opacity:0.35, depthWrite:false, side:THREE.DoubleSide });
 
 function rebuildLevel() {
   while (levelGroup.children.length) {
     const o=levelGroup.children[0]; levelGroup.remove(o);
+    if (o.geometry) o.geometry.dispose();
+  }
+  while (brushEdgeGroup.children.length) {
+    const o=brushEdgeGroup.children[0]; brushEdgeGroup.remove(o);
     if (o.geometry) o.geometry.dispose();
   }
   tileMeshes=[]; wallMeshes=[]; decorMeshes=[]; lightMeshes=[]; standaloneMs=[]; brushMeshes=[]; entityMeshes=[];
@@ -408,6 +416,14 @@ function _buildBrushMesh(brush) {
   mesh.castShadow=mesh.receiveShadow=true;
   mesh.userData={kind:'brush',id:brush.id,brushClass:'solid'};
   levelGroup.add(mesh); brushMeshes.push(mesh);
+
+  // EdgesGeometry overlay in helperScene — draws clean box outlines (no diagonal artifacts)
+  const edgeLines = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color: 0x6666aa, depthTest: false })
+  );
+  edgeLines.position.copy(pos);
+  brushEdgeGroup.add(edgeLines);
 }
 
 // Derive integer nav tiles from walkable brushes + rooms + standalone tiles
