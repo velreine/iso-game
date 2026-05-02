@@ -118,13 +118,19 @@ function _addSelOutline(mesh) {
 const handlesGroup = new THREE.Group();
 helperScene.add(handlesGroup);
 const HANDLE_AXES  = ['xMin', 'xMax', 'zMin', 'zMax', 'yMin', 'yMax',
-                      'xMinzMin', 'xMinzMax', 'xMaxzMin', 'xMaxzMax'];
+                      'xMinzMin', 'xMinzMax', 'xMaxzMin', 'xMaxzMax',   // XZ corners (Top)
+                      'xMinyMin', 'xMinyMax', 'xMaxyMin', 'xMaxyMax',   // XY corners (Front)
+                      'zMinyMin', 'zMinyMax', 'zMaxyMin', 'zMaxyMax'];  // ZY corners (Side)
 const HANDLE_COLOR = {
   xMin: 0xff4444, xMax: 0xff4444, zMin: 0x4488ff, zMax: 0x4488ff,
   yMin: 0x44cc44, yMax: 0x44cc44,
   xMinzMin: 0xffcc00, xMinzMax: 0xffcc00, xMaxzMin: 0xffcc00, xMaxzMax: 0xffcc00,
+  xMinyMin: 0xffcc00, xMinyMax: 0xffcc00, xMaxyMin: 0xffcc00, xMaxyMax: 0xffcc00,
+  zMinyMin: 0xffcc00, zMinyMax: 0xffcc00, zMaxyMin: 0xffcc00, zMaxyMax: 0xffcc00,
 };
-const CORNER_AXES = ['xMinzMin', 'xMinzMax', 'xMaxzMin', 'xMaxzMax'];
+const CORNER_AXES = ['xMinzMin', 'xMinzMax', 'xMaxzMin', 'xMaxzMax',
+                     'xMinyMin', 'xMinyMax', 'xMaxyMin', 'xMaxyMax',
+                     'zMinyMin', 'zMinyMax', 'zMaxyMin', 'zMaxyMax'];
 const handleMeshes = {};
 HANDLE_AXES.forEach(ax => {
   const isCorner = CORNER_AXES.includes(ax);
@@ -152,7 +158,16 @@ const spawnMesh = new THREE.Mesh(
   new THREE.MeshBasicMaterial({ color: 0x00ff88 })
 );
 spawnMesh.position.y = 0.4;
+spawnMesh.visible = false;
 helperScene.add(spawnMesh);
+
+// Boundary box outline for the spawn point (helperScene — never wireframed)
+const spawnEdgeBox = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(0.7, 0.95, 0.7)),
+  new THREE.LineBasicMaterial({ color: 0x00ff88 })
+);
+spawnEdgeBox.visible = false;
+helperScene.add(spawnEdgeBox);
 
 // ── Lighting ──────────────────────────────────────────────────────────────────
 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
@@ -277,6 +292,8 @@ function rebuildLevel() {
   }
   tileMeshes=[]; wallMeshes=[]; decorMeshes=[]; lightMeshes=[]; standaloneMs=[]; brushMeshes=[]; entityMeshes=[];
   tileMap={};
+  spawnMesh.visible = false;    // re-shown by _buildEntityMesh if a spawn entity exists
+  spawnEdgeBox.visible = false;
 
   ES.rooms.forEach(r => r.type==='ramp' ? _buildRampRoom(r) : _buildRoom(r));
   ES.elevatedTiles.forEach(_buildElevatedTile);
@@ -487,8 +504,21 @@ function _buildLightHelper(def) {
 
 function _buildEntityMesh(entity) {
   if (entity.entityType === 'spawn') {
+    const sy = 0.475; // centre of 0.95h box sitting on the floor
     spawnMesh.position.set(entity.x, 0.4, entity.z);
-    return; // spawn is just a marker, no mesh in entityMeshes
+    spawnMesh.visible = true;
+    spawnEdgeBox.position.set(entity.x, sy, entity.z);
+    spawnEdgeBox.visible = true;
+    // Invisible hitbox so spawn can be clicked/raycasted like any other entity
+    const hitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.7, 0.95, 0.7),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    hitbox.position.set(entity.x, sy, entity.z);
+    hitbox.userData = { kind: 'entity', id: entity.id, entityType: 'spawn' };
+    levelGroup.add(hitbox);
+    entityMeshes.push(hitbox);
+    return;
   }
   if (entity.entityType === 'decor') {
     const mesh = new THREE.Mesh(
@@ -594,10 +624,21 @@ function _updateHandles(id, kind) {
     handleMeshes.zMax.position.set(mx,my,b.zMax+0.5);
     handleMeshes.yMin.position.set(mx,b.yMin,mz); handleMeshes.yMin.visible=true;
     handleMeshes.yMax.position.set(mx,b.yMax,mz); handleMeshes.yMax.visible=true;
+    // XZ corners (Top view)
     handleMeshes.xMinzMin.position.set(b.xMin-0.5,my,b.zMin-0.5); handleMeshes.xMinzMin.visible=true;
     handleMeshes.xMinzMax.position.set(b.xMin-0.5,my,b.zMax+0.5); handleMeshes.xMinzMax.visible=true;
     handleMeshes.xMaxzMin.position.set(b.xMax+0.5,my,b.zMin-0.5); handleMeshes.xMaxzMin.visible=true;
     handleMeshes.xMaxzMax.position.set(b.xMax+0.5,my,b.zMax+0.5); handleMeshes.xMaxzMax.visible=true;
+    // XY corners (Front view)
+    handleMeshes.xMinyMin.position.set(b.xMin-0.5,b.yMin,mz); handleMeshes.xMinyMin.visible=true;
+    handleMeshes.xMinyMax.position.set(b.xMin-0.5,b.yMax,mz); handleMeshes.xMinyMax.visible=true;
+    handleMeshes.xMaxyMin.position.set(b.xMax+0.5,b.yMin,mz); handleMeshes.xMaxyMin.visible=true;
+    handleMeshes.xMaxyMax.position.set(b.xMax+0.5,b.yMax,mz); handleMeshes.xMaxyMax.visible=true;
+    // ZY corners (Side view)
+    handleMeshes.zMinyMin.position.set(mx,b.yMin,b.zMin-0.5); handleMeshes.zMinyMin.visible=true;
+    handleMeshes.zMinyMax.position.set(mx,b.yMax,b.zMin-0.5); handleMeshes.zMinyMax.visible=true;
+    handleMeshes.zMaxyMin.position.set(mx,b.yMin,b.zMax+0.5); handleMeshes.zMaxyMin.visible=true;
+    handleMeshes.zMaxyMax.position.set(mx,b.yMax,b.zMax+0.5); handleMeshes.zMaxyMax.visible=true;
   } else {
     handlesGroup.visible=false;
   }
@@ -862,26 +903,51 @@ function _onMouseMove(cx, cy, dx, dy) {
   // Handle resize
   if (_dragHandle && mouseButtons.left) {
     const o=_dragHandle.obj;
-    if (['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'].includes(_dragHandle.type)) {
+    const ht=_dragHandle.type;
+    if (['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'].includes(ht)) {
+      // Top-view XZ handles
       const wp=topToWorld(cx,cy); if (!wp) return;
       const sx=Math.round(wp.x), sz=Math.round(wp.z);
-      switch (_dragHandle.type) {
-        case 'xMin':    o.xMin=Math.min(sx,o.xMax-1); break;
-        case 'xMax':    o.xMax=Math.max(sx,o.xMin+1); break;
-        case 'zMin':    o.zMin=Math.min(sz,o.zMax-1); break;
-        case 'zMax':    o.zMax=Math.max(sz,o.zMin+1); break;
+      switch (ht) {
+        case 'xMin':     o.xMin=Math.min(sx,o.xMax-1); break;
+        case 'xMax':     o.xMax=Math.max(sx,o.xMin+1); break;
+        case 'zMin':     o.zMin=Math.min(sz,o.zMax-1); break;
+        case 'zMax':     o.zMax=Math.max(sz,o.zMin+1); break;
         case 'xMinzMin': o.xMin=Math.min(sx,o.xMax-1); o.zMin=Math.min(sz,o.zMax-1); break;
         case 'xMinzMax': o.xMin=Math.min(sx,o.xMax-1); o.zMax=Math.max(sz,o.zMin+1); break;
         case 'xMaxzMin': o.xMax=Math.max(sx,o.xMin+1); o.zMin=Math.min(sz,o.zMax-1); break;
         case 'xMaxzMax': o.xMax=Math.max(sx,o.xMin+1); o.zMax=Math.max(sz,o.zMin+1); break;
       }
       _setStatus(`${o.id}: x[${o.xMin}→${o.xMax}]  z[${o.zMin}→${o.zMax}]`);
-    } else if (['yMin','yMax'].includes(_dragHandle.type)) {
+    } else if (['yMin','yMax'].includes(ht)) {
+      // Edge Y handles
       const y=_worldYFromView(cx,cy,vp); if (y===null) return;
       const snap=parseFloat(y.toFixed(2));
-      if (_dragHandle.type==='yMin') o.yMin=Math.min(snap,o.yMax-0.1);
-      else                           o.yMax=Math.max(snap,o.yMin+0.1);
+      if (ht==='yMin') o.yMin=Math.min(snap,o.yMax-0.1);
+      else             o.yMax=Math.max(snap,o.yMin+0.1);
       _setStatus(`${o.id}: y[${o.yMin}→${o.yMax}]`);
+    } else if (['xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'].includes(ht)) {
+      // Front-view XY corners
+      const wp=frontToWorld(cx,cy); if (!wp) return;
+      const sx=Math.round(wp.x), sy=parseFloat(wp.y.toFixed(2));
+      switch (ht) {
+        case 'xMinyMin': o.xMin=Math.min(sx,o.xMax-1); o.yMin=Math.min(sy,o.yMax-0.1); break;
+        case 'xMinyMax': o.xMin=Math.min(sx,o.xMax-1); o.yMax=Math.max(sy,o.yMin+0.1); break;
+        case 'xMaxyMin': o.xMax=Math.max(sx,o.xMin+1); o.yMin=Math.min(sy,o.yMax-0.1); break;
+        case 'xMaxyMax': o.xMax=Math.max(sx,o.xMin+1); o.yMax=Math.max(sy,o.yMin+0.1); break;
+      }
+      _setStatus(`${o.id}: x[${o.xMin}→${o.xMax}]  y[${o.yMin}→${o.yMax}]`);
+    } else if (['zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'].includes(ht)) {
+      // Side-view ZY corners
+      const wp=sideToWorld(cx,cy); if (!wp) return;
+      const sz=Math.round(wp.z), sy=parseFloat(wp.y.toFixed(2));
+      switch (ht) {
+        case 'zMinyMin': o.zMin=Math.min(sz,o.zMax-1); o.yMin=Math.min(sy,o.yMax-0.1); break;
+        case 'zMinyMax': o.zMin=Math.min(sz,o.zMax-1); o.yMax=Math.max(sy,o.yMin+0.1); break;
+        case 'zMaxyMin': o.zMax=Math.max(sz,o.zMin+1); o.yMin=Math.min(sy,o.yMax-0.1); break;
+        case 'zMaxyMax': o.zMax=Math.max(sz,o.zMin+1); o.yMax=Math.max(sy,o.yMin+0.1); break;
+      }
+      _setStatus(`${o.id}: z[${o.zMin}→${o.zMax}]  y[${o.yMin}→${o.yMax}]`);
     }
     rebuildLevel();
     return;
@@ -1987,8 +2053,8 @@ document.getElementById('btn-nav-toggle').addEventListener('click', function () 
 document.getElementById('meta-name').addEventListener('change',e=>ES.levelName=e.target.value);
 document.getElementById('meta-id').addEventListener('change',e=>ES.levelId=e.target.value);
 document.getElementById('meta-steph').addEventListener('change',e=>ES.stepHeight=parseFloat(e.target.value)||0.3);
-document.getElementById('meta-spawnx').addEventListener('change',e=>{ ES.playerStart.x=+e.target.value||0; spawnMesh.position.setX(ES.playerStart.x); });
-document.getElementById('meta-spawnz').addEventListener('change',e=>{ ES.playerStart.z=+e.target.value||0; spawnMesh.position.setZ(ES.playerStart.z); });
+document.getElementById('meta-spawnx').addEventListener('change',e=>{ ES.playerStart.x=+e.target.value||0; spawnMesh.position.setX(ES.playerStart.x); spawnEdgeBox.position.setX(ES.playerStart.x); });
+document.getElementById('meta-spawnz').addEventListener('change',e=>{ ES.playerStart.z=+e.target.value||0; spawnMesh.position.setZ(ES.playerStart.z); spawnEdgeBox.position.setZ(ES.playerStart.z); });
 
 // ── Export / Import ───────────────────────────────────────────────────────────
 function _serialize() {
@@ -2092,7 +2158,23 @@ function _renderVP(name, cam, isLive) {
   renderer.render(scene,cam);
   scene.overrideMaterial = null;
   if(!isLive) renderer.clearDepth(); // helpers (grid, handles, selection) always on top in ortho
+  // Each ortho view only shows handles for its two active axes — hide depth-axis handles per pass
+  const _vpHideAxes = {
+    top:   ['yMin','yMax',
+            'xMinyMin','xMinyMax','xMaxyMin','xMaxyMax',   // XY corners only for Front
+            'zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'],  // ZY corners only for Side
+    front: ['zMin','zMax',
+            'xMinzMin','xMinzMax','xMaxzMin','xMaxzMax',   // XZ corners only for Top
+            'zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'],  // ZY corners only for Side
+    side:  ['xMin','xMax',
+            'xMinzMin','xMinzMax','xMaxzMin','xMaxzMax',   // XZ corners only for Top
+            'xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'],  // XY corners only for Front
+  };
+  const _axesToHide = _vpHideAxes[name] || [];
+  const _savedVis = {};
+  _axesToHide.forEach(ax=>{ _savedVis[ax]=handleMeshes[ax]?.visible; if(handleMeshes[ax]) handleMeshes[ax].visible=false; });
   renderer.render(helperScene,cam);
+  _axesToHide.forEach(ax=>{ if(handleMeshes[ax]) handleMeshes[ax].visible=_savedVis[ax]; });
 }
 function animate() {
   requestAnimationFrame(animate);
