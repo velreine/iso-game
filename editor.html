@@ -254,6 +254,19 @@
     </div>
   </div>
 
+  <!-- ── Compile-Nav modal ─────────────────────────────────────────────────── -->
+  <div id="compile-nav-modal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-title">Compile Nav Mesh</div>
+      <p class="hint" style="margin-bottom:10px">Existing nav cells found. How should compilation proceed?</p>
+      <div class="modal-buttons" style="flex-direction:column;gap:6px;align-items:stretch">
+        <button id="btn-nav-override" class="btn-primary">Override All — replace every cell with freshly compiled ones</button>
+        <button id="btn-nav-new">Compile New — add only new coordinates, preserve costs &amp; groups</button>
+        <button id="btn-nav-compile-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Load-Level modal ──────────────────────────────────────────────────── -->
   <div id="load-level-modal" class="modal hidden">
     <div class="modal-box">

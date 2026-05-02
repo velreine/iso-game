@@ -16,9 +16,10 @@ const ES = {
   playerStart: { x: 0, z: 0 },
   rooms: [], elevatedTiles: [], decoratives: [], lights: [], portals: [],
   standaloneTiles: [],
-  brushes:  [],   // Hammer-style solid brushes
-  navMesh:  [],   // baked nav tiles [{x,z,elevation}]
-  groups:   [],   // [{id, name, collapsed, items:[{kind,id}]}]
+  brushes:   [],  // Hammer-style solid brushes
+  navMesh:   [],  // baked nav tiles [{id,x,z,elevation,cost,navGroupId?}]
+  navGroups: [],  // sub-groups within the virtual _navmesh folder [{id,name,collapsed}]
+  groups:    [],  // [{id, name, collapsed, items:[{kind,id}]}]
   entities: [],   // unified entity list [{id, entityType:'decor'|'light'|'spawn', x,y,z, ...}]
 
   // Multi-selection: array of {kind, id}
@@ -279,6 +280,13 @@ helperScene.add(navOverlayGroup);
 // Edge-outline overlays for solid brushes (helperScene — never wireframed)
 const brushEdgeGroup = new THREE.Group();
 helperScene.add(brushEdgeGroup);
+
+// Nav cell hitboxes — always present for raycasting regardless of Show Nav state
+const navHitboxGroup = new THREE.Group();
+helperScene.add(navHitboxGroup);
+
+// Virtual _navmesh folder collapsed state
+let _navFolderCollapsed = false;
 const _navMat = new THREE.MeshBasicMaterial({ color:0x00ff88, transparent:true, opacity:0.35, depthWrite:false, side:THREE.DoubleSide });
 
 function rebuildLevel() {
@@ -288,6 +296,10 @@ function rebuildLevel() {
   }
   while (brushEdgeGroup.children.length) {
     const o=brushEdgeGroup.children[0]; brushEdgeGroup.remove(o);
+    if (o.geometry) o.geometry.dispose();
+  }
+  while (navHitboxGroup.children.length) {
+    const o=navHitboxGroup.children[0]; navHitboxGroup.remove(o);
     if (o.geometry) o.geometry.dispose();
   }
   tileMeshes=[]; wallMeshes=[]; decorMeshes=[]; lightMeshes=[]; standaloneMs=[]; brushMeshes=[]; entityMeshes=[];
@@ -304,6 +316,7 @@ function rebuildLevel() {
   ES.brushes.forEach(_buildBrushMesh);
   ES.entities.forEach(_buildEntityMesh);
   _buildNavOverlay();
+  _buildNavHitboxes();
 
   // Use spawn entity position if one exists, otherwise ES.playerStart
   const _spawnEnt = ES.entities.find(e => e.entityType === 'spawn');
@@ -444,7 +457,8 @@ function _buildBrushMesh(brush) {
 }
 
 // Derive integer nav tiles from walkable brushes + rooms + standalone tiles
-function _compileNavMesh() {
+// mode: 'override' (replace all) | 'new' (add only coordinates not already present)
+function _compileNavMesh(mode='override') {
   const cells={};
   const SH = ES.stepHeight || STEP_H;
   const stamp=(x,z,elev)=>{ const k=`${x},${z}`; if(!cells[k]||cells[k].elevation<elev) cells[k]={x,z,elevation:elev}; };
@@ -476,9 +490,23 @@ function _compileNavMesh() {
   // Standalone tiles
   ES.standaloneTiles.forEach(st=>stamp(st.x,st.z,st.elevation||0));
 
-  ES.navMesh=Object.values(cells);
+  if (mode==='new') {
+    // Keep existing cells; only add newly discovered coordinates
+    const existing = new Map(ES.navMesh.map(c=>[`${c.x},${c.z}`,c]));
+    Object.values(cells).forEach(c=>{
+      if (!existing.has(`${c.x},${c.z}`)) {
+        ES.navMesh.push({ id:_nextId('nav'), x:c.x, z:c.z, elevation:c.elevation, cost:1 });
+      }
+    });
+  } else {
+    // Override all — assign new IDs and default costs
+    ES.navMesh = Object.values(cells).map(c=>({ id:_nextId('nav'), x:c.x, z:c.z, elevation:c.elevation, cost:1 }));
+  }
+
   _buildNavOverlay();
-  _setStatus(`Nav compiled — ${ES.navMesh.length} tile(s)  ·  export to bake into level`);
+  _buildNavHitboxes();
+  _refreshLayersList();
+  _setStatus(`Nav compiled (${mode}) — ${ES.navMesh.length} cell(s)  ·  export to bake`);
   return ES.navMesh;
 }
 
@@ -486,11 +514,27 @@ function _buildNavOverlay() {
   while(navOverlayGroup.children.length){ const o=navOverlayGroup.children[0]; navOverlayGroup.remove(o); if(o.geometry)o.geometry.dispose(); }
   if (!_showNavMesh||!ES.navMesh.length) return;
   ES.navMesh.forEach(cell=>{
+    const isSel = selContains('nav', cell.id);
+    const mat = isSel
+      ? new THREE.MeshBasicMaterial({ color:0xffff44, transparent:true, opacity:0.55, depthWrite:false, side:THREE.DoubleSide })
+      : _navMat;
     const geo=new THREE.PlaneGeometry(0.92,0.92);
-    const m=new THREE.Mesh(geo,_navMat);
+    const m=new THREE.Mesh(geo,mat);
     m.rotation.x=-Math.PI/2;
-    m.position.set(cell.x,cell.elevation+0.012,cell.z);
+    m.position.set(cell.x,(cell.elevation??0)+0.012,cell.z);
     navOverlayGroup.add(m);
+  });
+}
+
+// Invisible hitbox for each nav cell — always built so cells are always clickable
+function _buildNavHitboxes() {
+  const geo = new THREE.BoxGeometry(0.9, 0.08, 0.9);
+  const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+  ES.navMesh.forEach(cell => {
+    const m = new THREE.Mesh(geo.clone(), mat.clone());
+    m.position.set(cell.x, (cell.elevation ?? 0) + 0.04, cell.z);
+    m.userData = { kind: 'nav', id: cell.id };
+    navHitboxGroup.add(m);
   });
 }
 
@@ -561,6 +605,9 @@ function _refreshSelBoxes() {
     _addSelOutline(mesh);
   });
 
+  // Update nav overlay highlight whenever selection changes (selected cells turn yellow)
+  _buildNavOverlay();
+
   // Single-room: show bounds box + handles
   const roomSels=ES.selection.filter(s=>s.kind==='room');
   if (roomSels.length===1) {
@@ -581,6 +628,7 @@ function _findMeshById(kind, id) {
   if (kind==='room')       return tileMeshes.find(m=>m.userData.roomId===id)||null;
   if (kind==='brush')      return brushMeshes.find(m=>m.userData.id===id)||null;
   if (kind==='entity')     return entityMeshes.find(m=>m.userData.kind==='entity'&&m.userData.id===id)||null;
+  if (kind==='nav')        return navHitboxGroup.children.find(m=>m.userData.id===id)||null;
   if (kind==='elevated')   { const [x,z]=id.split(',').map(Number); return tileMeshes.find(m=>m.userData.kind==='elevated'&&m.userData.x===x&&m.userData.z===z)||null; }
   return null;
 }
@@ -678,7 +726,7 @@ function _raycastHandles(cx, cy, vp) {
 function _raycastLevel(cx, cy, vp) {
   raycaster.setFromCamera(toClip(vp,cx,cy), _camFor(vp));
   const selectableEnts = entityMeshes.filter(m => m.userData.kind === 'entity');
-  const hits=raycaster.intersectObjects([...tileMeshes,...decorMeshes,...lightMeshes,...brushMeshes,...selectableEnts]);
+  const hits=raycaster.intersectObjects([...tileMeshes,...decorMeshes,...lightMeshes,...brushMeshes,...selectableEnts,...navHitboxGroup.children]);
   if (!hits.length) return null;
   const hit=hits[0];
   const ud={...hit.object.userData};
@@ -847,12 +895,12 @@ function _onLeftDown(cx, cy, ctrl) {
     const idx=ES.navMesh.findIndex(c=>c.x===tx&&c.z===tz);
     if (ctrl || idx>=0) {
       // ctrl+click or click on existing cell → remove
-      if(idx>=0) { ES.navMesh.splice(idx,1); _buildNavOverlay(); _setStatus(`Nav cell removed (${tx},${tz})  ·  ${ES.navMesh.length} total`); }
+      if(idx>=0) { ES.navMesh.splice(idx,1); _buildNavHitboxes(); _buildNavOverlay(); _setStatus(`Nav cell removed (${tx},${tz})  ·  ${ES.navMesh.length} total`); }
     } else {
       // click on empty → add at tileMap elevation or 0
       const elev = tmGet(tx,tz)?.elevation ?? 0;
-      ES.navMesh.push({x:tx,z:tz,elevation:elev,manual:true});
-      _buildNavOverlay(); _setStatus(`Nav cell added (${tx},${tz})  ·  ${ES.navMesh.length} total`);
+      ES.navMesh.push({id:_nextId('nav'),x:tx,z:tz,elevation:elev,cost:1,manual:true});
+      _buildNavHitboxes(); _buildNavOverlay(); _setStatus(`Nav cell added (${tx},${tz})  ·  ${ES.navMesh.length} total`);
     }
     // Auto-show overlay when painting
     if (!_showNavMesh) { _showNavMesh=true; document.getElementById('btn-nav-toggle').classList.add('nav-active'); _buildNavOverlay(); }
@@ -1070,6 +1118,10 @@ function _startMoveDrag(worldPos, vp) {
         const e=ES.entities.find(e=>e.id===s.id);
         return e ? {...s, orig:{x:e.x,z:e.z,y:e.y??0}} : {...s,orig:null};
       }
+      if (s.kind==='nav') {
+        const c=ES.navMesh.find(c=>c.id===s.id);
+        return c ? {...s, orig:{x:c.x,z:c.z,y:0}} : {...s,orig:null};
+      }
       return {...s, orig:null};
     }),
   };
@@ -1096,6 +1148,9 @@ function _applyMoveDelta(dx, dz, dy=0) {
     } else if (s.kind==='entity') {
       const e=ES.entities.find(e=>e.id===s.id);
       if(e) { e.x=s.orig.x+dx; e.z=s.orig.z+dz; e.y=parseFloat((s.orig.y+dy).toFixed(2)); }
+    } else if (s.kind==='nav') {
+      const c=ES.navMesh.find(c=>c.id===s.id);
+      if(c) { c.x=s.orig.x+dx; c.z=s.orig.z+dz; }
     }
   });
   rebuildLevel();
@@ -1142,6 +1197,7 @@ function _finishMarquee(cssStart, cssEnd, vp, additive) {
   ES.elevatedTiles.forEach(et => { if(inMarquee(et.x,et.elevation,et.z)) push('elevated',`${et.x},${et.z}`); });
   ES.brushes.forEach(b => { const cx=(b.xMin+b.xMax)/2, cy=(b.yMin+b.yMax)/2, cz=(b.zMin+b.zMax)/2; if(inMarquee(cx,cy,cz)) push('brush',b.id); });
   ES.entities.forEach(e => { if(inMarquee(e.x, e.y??0.5, e.z)) push('entity',e.id); });
+  ES.navMesh.forEach(c => { if(inMarquee(c.x, c.elevation??0, c.z)) push('nav',c.id); });
 
   ES.selection=newSel;
   _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
@@ -1168,6 +1224,9 @@ function _moveSelection(dx, dz, dy=0) {
     } else if (s.kind==='entity') {
       const e=ES.entities.find(e=>e.id===s.id);
       if(e) { e.x+=dx; e.z+=dz; e.y=(e.y??0)+dy; }
+    } else if (s.kind==='nav') {
+      const c=ES.navMesh.find(c=>c.id===s.id);
+      if(c) { c.x+=dx; c.z+=dz; }
     }
   });
   rebuildLevel();
@@ -1196,6 +1255,9 @@ function _duplicateSelection() {
     } else if (s.kind==='entity') {
       const e=JSON.parse(JSON.stringify(ES.entities.find(x=>x.id===s.id))); if(!e) return;
       e.id=_nextId('entity'); e.x+=2; ES.entities.push(e); newSel.push({kind:'entity',id:e.id});
+    } else if (s.kind==='nav') {
+      const c=JSON.parse(JSON.stringify(ES.navMesh.find(x=>x.id===s.id))); if(!c) return;
+      c.id=_nextId('nav'); c.x+=1; ES.navMesh.push(c); newSel.push({kind:'nav',id:c.id});
     }
   });
   ES.selection=newSel;
@@ -1211,7 +1273,7 @@ function _pushUndo() {
     rooms:ES.rooms, elevatedTiles:ES.elevatedTiles, decoratives:ES.decoratives,
     lights:ES.lights, portals:ES.portals, playerStart:ES.playerStart,
     standaloneTiles:ES.standaloneTiles, brushes:ES.brushes, navMesh:ES.navMesh,
-    groups:ES.groups, entities:ES.entities, selection:ES.selection,
+    navGroups:ES.navGroups, groups:ES.groups, entities:ES.entities, selection:ES.selection,
   }));
   if (ES.undoStack.length>50) ES.undoStack.shift();
 }
@@ -1219,10 +1281,11 @@ function _undo() {
   if (!ES.undoStack.length) return;
   const snap=JSON.parse(ES.undoStack.pop());
   Object.assign(ES,snap);
-  if (!ES.brushes)   ES.brushes=[];
-  if (!ES.navMesh)   ES.navMesh=[];
-  if (!ES.groups)    ES.groups=[];
-  if (!ES.entities)  ES.entities=[];
+  if (!ES.brushes)    ES.brushes=[];
+  if (!ES.navMesh)    ES.navMesh=[];
+  if (!ES.navGroups)  ES.navGroups=[];
+  if (!ES.groups)     ES.groups=[];
+  if (!ES.entities)   ES.entities=[];
   rebuildLevel(); _showPropsForSelection(); _setStatus('Undo');
 }
 function _deleteSelected() {
@@ -1236,6 +1299,7 @@ function _deleteSelected() {
     else if(s.kind==='elevated') { const [x,z]=s.id.split(',').map(Number); ES.elevatedTiles=ES.elevatedTiles.filter(e=>!(e.x===x&&e.z===z)); }
     else if(s.kind==='brush') ES.brushes=ES.brushes.filter(b=>b.id!==s.id);
     else if(s.kind==='entity') ES.entities=ES.entities.filter(e=>e.id!==s.id);
+    else if(s.kind==='nav') ES.navMesh=ES.navMesh.filter(c=>c.id!==s.id);
   });
   // Remove deleted items from any groups; prune empty groups
   ES.groups.forEach(g => {
@@ -1336,6 +1400,7 @@ function _showPropsForSelection() {
     else if(kind==='light')    _showProps('light',      ES.lights.find(l=>l.id===id));
     else if(kind==='brush')    _showBrushProps(ES.brushes.find(b=>b.id===id));
     else if(kind==='entity')   _showEntityProps(ES.entities.find(e=>e.id===id));
+    else if(kind==='nav')      _showNavProps(ES.navMesh.find(c=>c.id===id));
     return;
   }
   // Multi-select → batch editor
@@ -1352,6 +1417,27 @@ function _showPropsForSelection() {
     return data?{kind:s.kind,data}:null;
   }).filter(Boolean);
   _showBatchProps(kinds,items,n);
+}
+
+// ── Nav cell properties panel ─────────────────────────────────────────────────
+function _showNavProps(cell) {
+  if (!cell) { propsContent.innerHTML='<p class="hint">Nav cell not found.</p>'; return; }
+  const groupOpts = `<option value="">— none —</option>`
+    + ES.navGroups.map(g=>`<option value="${g.id}"${g.id===cell.navGroupId?' selected':''}>${_escHtml(g.name)}</option>`).join('');
+  propsContent.innerHTML = `
+    <div class="prop-heading">Nav Cell</div>
+    ${_tr('ID','np-id',cell.id)}
+    ${_tn('X','np-x',cell.x)}
+    ${_tn('Z','np-z',cell.z)}
+    ${_tn('Elevation','np-elev',cell.elevation??0,0.1)}
+    ${_tn('Cost','np-cost',cell.cost??1)}
+    <div class="prop-row"><label>Group</label><select id="np-group">${groupOpts}</select></div>`;
+  document.getElementById('np-id')?.addEventListener('change',e=>{cell.id=e.target.value;rebuildLevel();_refreshLayersList();});
+  const bN=(id,f,int)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ cell[f]=int?parseInt(el.value):parseFloat(el.value); rebuildLevel(); }); };
+  bN('np-x','x',true); bN('np-z','z',true); bN('np-elev','elevation',false); bN('np-cost','cost',true);
+  document.getElementById('np-group')?.addEventListener('change',e=>{
+    cell.navGroupId=e.target.value||undefined; _refreshLayersList();
+  });
 }
 
 function _showBatchProps(kinds, items, n) {
@@ -1512,6 +1598,7 @@ function _getItemDisplay(kind, id) {
     case 'decor':      { const d=ES.decoratives.find(d=>d.id===id);     return d ? {icon:'□',name:d.id,sub:'decor'} : null; }
     case 'light':      { const l=ES.lights.find(l=>l.id===id);          return l ? {icon:'✦',name:l.id,sub:'light'} : null; }
     case 'entity':     { const e=ES.entities.find(e=>e.id===id);        return e ? {icon:{decor:'□',light:'✦',spawn:'⊕'}[e.entityType]||'●',name:e.id,sub:e.entityType} : null; }
+    case 'nav':        { const c=ES.navMesh.find(c=>c.id===id);         return c ? {icon:'⬡',name:c.id,sub:`cost:${c.cost??1}`} : null; }
     default: return null;
   }
 }
@@ -1561,6 +1648,39 @@ function _refreshLayersList() {
   ];
   allItems.filter(({kind,id})=>!groupedKeys.has(`${kind}::${id}`))
           .forEach(({kind,id})=>{ html += itemRowHTML(kind, id, false); });
+
+  // ── Virtual _navmesh folder ──
+  if (ES.navMesh.length || ES.navGroups.length) {
+    const anySel = ES.navMesh.some(c=>selContains('nav',c.id));
+    html += `<div class="group-header nav-folder-header${anySel?' sel':''}" data-nav-folder="1">
+      <span class="group-toggle${_navFolderCollapsed?' coll':''}">▾</span>
+      <span class="group-name">_navmesh</span>
+      <span class="layer-kind">${ES.navMesh.length}</span>
+      <button class="group-del nav-add-grp" title="New nav sub-group">+</button>
+    </div>`;
+    if (!_navFolderCollapsed) {
+      html += `<div class="group-body">`;
+      // sub-groups
+      ES.navGroups.forEach(g => {
+        const gCells = ES.navMesh.filter(c=>c.navGroupId===g.id);
+        const gSel   = gCells.some(c=>selContains('nav',c.id));
+        html += `<div class="group-header${gSel?' sel':''}" style="padding-left:10px" data-nav-group-id="${_escHtml(g.id)}">
+          <span class="group-toggle${g.collapsed?' coll':''}">▾</span>
+          <span class="group-name">${_escHtml(g.name)}</span>
+          <span class="layer-kind">${gCells.length}</span>
+          <button class="group-del" title="Delete nav group">×</button>
+        </div>`;
+        if (!g.collapsed) {
+          html += `<div class="group-body">`;
+          gCells.forEach(c=>{ html+=itemRowHTML('nav',c.id,true); });
+          html += `</div>`;
+        }
+      });
+      // ungrouped nav cells
+      ES.navMesh.filter(c=>!c.navGroupId).forEach(c=>{ html+=itemRowHTML('nav',c.id,true); });
+      html += `</div>`;
+    }
+  }
 
   layersList.innerHTML = html;
 
@@ -1627,6 +1747,58 @@ function _refreshLayersList() {
       _setStatus(`Ungrouped "${g.name}"`);
     });
   });
+
+  // ── Bind: virtual _navmesh folder ──
+  const navFolderEl = layersList.querySelector('[data-nav-folder]');
+  if (navFolderEl) {
+    navFolderEl.addEventListener('click', e => {
+      if (e.target.closest('.nav-add-grp')) {
+        e.stopPropagation();
+        _pushUndo();
+        const id=_nextId('navgrp'), name=`Nav Group ${ES.navGroups.length+1}`;
+        ES.navGroups.push({id,name,collapsed:false});
+        _refreshLayersList();
+        _setStatus(`Nav sub-group "${name}" created`);
+        return;
+      }
+      if (e.target.closest('.group-toggle')) { e.stopPropagation(); _navFolderCollapsed=!_navFolderCollapsed; _refreshLayersList(); return; }
+      // Click header → select all nav cells
+      const ctrl=e.ctrlKey||e.metaKey;
+      if(!ctrl) selClear();
+      ES.navMesh.forEach(c=>selAdd('nav',c.id));
+      _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
+    });
+  }
+
+  // ── Bind: nav sub-groups ──
+  layersList.querySelectorAll('[data-nav-group-id]').forEach(hEl => {
+    const gId=hEl.dataset.navGroupId;
+    const g=ES.navGroups.find(g=>g.id===gId); if(!g) return;
+    hEl.addEventListener('click', e => {
+      if (e.target.classList.contains('group-del')) {
+        e.stopPropagation();
+        _pushUndo();
+        ES.navMesh.forEach(c=>{ if(c.navGroupId===gId) delete c.navGroupId; });
+        ES.navGroups=ES.navGroups.filter(g=>g.id!==gId);
+        _refreshLayersList(); return;
+      }
+      if (e.target.closest('.group-toggle')) { e.stopPropagation(); g.collapsed=!g.collapsed; _refreshLayersList(); return; }
+      // Double-click rename
+      const ctrl=e.ctrlKey||e.metaKey;
+      if(!ctrl) selClear();
+      ES.navMesh.filter(c=>c.navGroupId===gId).forEach(c=>selAdd('nav',c.id));
+      _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
+    });
+    hEl.querySelector('.group-name')?.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      const span=e.currentTarget;
+      const inp=document.createElement('input'); inp.className='group-name-edit'; inp.value=g.name;
+      span.replaceWith(inp); inp.focus(); inp.select();
+      const commit=()=>{ g.name=inp.value.trim()||g.name; _refreshLayersList(); };
+      inp.addEventListener('blur',commit);
+      inp.addEventListener('keydown',ev=>{ if(ev.key==='Enter'){ev.preventDefault();commit();} if(ev.key==='Escape')_refreshLayersList(); ev.stopPropagation(); });
+    });
+  });
 }
 
 // ── Status ────────────────────────────────────────────────────────────────────
@@ -1658,7 +1830,8 @@ window.addEventListener('keydown',e=>{
       { modal:'entity-dialog',     primary:'en-create'      },
       { modal:'import-modal',      primary:'btn-do-import'  },
       { modal:'export-modal',      primary:'btn-close-export'},
-      { modal:'load-level-modal',  primary: null             },
+      { modal:'load-level-modal',   primary: null             },
+      { modal:'compile-nav-modal', primary: null             },
     ];
     for (const {modal, primary} of modalMap) {
       const el=document.getElementById(modal);
@@ -2054,7 +2227,22 @@ function _showBrushProps(brush) {
 
 // ── Nav / Compile toolbar buttons ─────────────────────────────────────────────
 document.getElementById('btn-compile-nav').addEventListener('click', () => {
-  _compileNavMesh();
+  if (ES.navMesh.length > 0) {
+    document.getElementById('compile-nav-modal').classList.remove('hidden');
+  } else {
+    _pushUndo(); _compileNavMesh('override');
+  }
+});
+document.getElementById('btn-nav-override').addEventListener('click', () => {
+  document.getElementById('compile-nav-modal').classList.add('hidden');
+  _pushUndo(); _compileNavMesh('override');
+});
+document.getElementById('btn-nav-new').addEventListener('click', () => {
+  document.getElementById('compile-nav-modal').classList.add('hidden');
+  _pushUndo(); _compileNavMesh('new');
+});
+document.getElementById('btn-nav-compile-cancel').addEventListener('click', () => {
+  document.getElementById('compile-nav-modal').classList.add('hidden');
 });
 
 document.getElementById('btn-nav-toggle').addEventListener('click', function () {
@@ -2074,14 +2262,13 @@ document.getElementById('meta-spawnz').addEventListener('change',e=>{ ES.playerS
 
 // ── Export / Import ───────────────────────────────────────────────────────────
 function _serialize() {
-  // Always bake the nav mesh on export so it's available to the game engine
-  _compileNavMesh();
   // Derive playerStart from spawn entity if present
   const _se=ES.entities.find(e=>e.entityType==='spawn');
   const _ps=_se ? {x:_se.x,z:_se.z} : ES.playerStart;
   const d={id:ES.levelId,name:ES.levelName,stepHeight:ES.stepHeight,playerStart:_ps,
     rooms:ES.rooms,elevatedTiles:ES.elevatedTiles,decoratives:ES.decoratives,lights:ES.lights,
-    portals:ES.portals,brushes:ES.brushes,navMesh:ES.navMesh,groups:ES.groups,entities:ES.entities};
+    portals:ES.portals,brushes:ES.brushes,navMesh:ES.navMesh,navGroups:ES.navGroups,
+    groups:ES.groups,entities:ES.entities};
   return `// ─── ${d.name} ────\n(function () {\n  window.LEVELS = window.LEVELS || {};\n  window.LEVELS[${JSON.stringify(d.id)}] = ${JSON.stringify(d,null,2)};\n}());`;
 }
 document.getElementById('btn-export').addEventListener('click',()=>{document.getElementById('export-text').value=_serialize();document.getElementById('export-modal').classList.remove('hidden');});
@@ -2141,8 +2328,17 @@ function _loadLevel(lvl) {
   ES.levelId=lvl.id||'level1'; ES.levelName=lvl.name||'Imported'; ES.stepHeight=lvl.stepHeight||0.3;
   ES.playerStart=lvl.playerStart||{x:0,z:0}; ES.rooms=lvl.rooms||[]; ES.elevatedTiles=lvl.elevatedTiles||[];
   ES.decoratives=lvl.decoratives||[]; ES.lights=lvl.lights||[]; ES.portals=lvl.portals||[];
-  ES.standaloneTiles=[]; ES.brushes=lvl.brushes||[]; ES.navMesh=lvl.navMesh||[]; ES.groups=lvl.groups||[];
+  ES.standaloneTiles=[]; ES.brushes=lvl.brushes||[]; ES.groups=lvl.groups||[];
+  ES.navGroups=lvl.navGroups||[];
   ES.entities=lvl.entities||[];
+  // Load nav mesh — migrate old cells without id/cost
+  ES.navMesh=(lvl.navMesh||[]).map(c=>({
+    id: c.id || _nextId('nav'),
+    x: c.x, z: c.z,
+    elevation: c.elevation??0,
+    cost: c.cost??1,
+    ...(c.navGroupId ? {navGroupId:c.navGroupId} : {}),
+  }));
   // Migrate legacy decoratives + lights → entities on first load of old levels
   if (!ES.entities.length && (ES.decoratives.length || ES.lights.length)) {
     ES.decoratives.forEach(d=>{ES.entities.push({id:d.id||_nextId('entity'),entityType:'decor',x:d.x||0,y:d.y??0.5,z:d.z||0,w:d.w||1,h:d.h||1,d:d.d||1,color:d.color||0x606060});});
