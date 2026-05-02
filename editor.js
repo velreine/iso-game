@@ -1672,6 +1672,12 @@ window.addEventListener('keydown',e=>{
         return;
       }
     }
+    // No modal open — Escape clears selection
+    if (e.key==='Escape' && ES.selection.length) {
+      e.preventDefault();
+      selClear(); _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
+      return;
+    }
   }
 
   if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
