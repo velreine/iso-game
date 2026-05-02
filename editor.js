@@ -221,6 +221,20 @@ function topToWorld(cx, cy) {
   const pt=new THREE.Vector3();
   return ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),pt) ? {x:pt.x,z:pt.z} : null;
 }
+// World XY from front-view click
+function frontToWorld(cx, cy) {
+  const r=getViewportRect('front');
+  const asp=canvas.clientWidth/canvas.clientHeight;
+  const clipX=((cx-r.x)/r.w)*2-1, clipY=-((cy-r.y)/r.h)*2+1;
+  return { x: frontPanX + clipX*orthoZoom*asp, y: frontPanY + clipY*orthoZoom };
+}
+// World ZY from side-view click (side cam looks from -X; screen-right = world +Z)
+function sideToWorld(cx, cy) {
+  const r=getViewportRect('side');
+  const asp=canvas.clientWidth/canvas.clientHeight;
+  const clipX=((cx-r.x)/r.w)*2-1, clipY=-((cy-r.y)/r.h)*2+1;
+  return { z: sidePanZ + clipX*orthoZoom*asp, y: sidePanY + clipY*orthoZoom };
+}
 // World Y from mouse position in front or side view (ortho, Y is vertical axis)
 function _worldYFromView(cx, cy, vp) {
   if (vp!=='front'&&vp!=='side') return null;
@@ -729,11 +743,10 @@ function _onLeftDown(cx, cy, ctrl) {
       }
       _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
 
-      // Start move drag
-      if (vp==='top') {
-        const wp=topToWorld(cx,cy);
-        if (wp) _startMoveDrag(wp);
-      }
+      // Start move drag (works from all ortho views)
+      if (vp==='top')   { const wp=topToWorld(cx,cy);   if(wp) _startMoveDrag({x:wp.x,y:0,z:wp.z}, vp); }
+      if (vp==='front') { const wp=frontToWorld(cx,cy); if(wp) _startMoveDrag({x:wp.x,y:wp.y,z:0}, vp); }
+      if (vp==='side')  { const wp=sideToWorld(cx,cy);  if(wp) _startMoveDrag({x:0,y:wp.y,z:wp.z}, vp); }
       return;
     }
 
@@ -858,12 +871,19 @@ function _onMouseMove(cx, cy, dx, dy) {
     return;
   }
 
-  // Selection move
+  // Selection move — use whichever viewport the drag started in
   if (_dragMove && mouseButtons.left && _dragDistance > DRAG_THRESHOLD) {
-    const wp=topToWorld(cx,cy); if (!wp) return;
-    const dx2=Math.round(wp.x-_dragMove.worldStart.x);
-    const dz2=Math.round(wp.z-_dragMove.worldStart.z);
-    _applyMoveDelta(dx2, dz2);
+    const dvp = _dragMove.vp;
+    if (dvp==='top') {
+      const wp=topToWorld(cx,cy); if(!wp) return;
+      _applyMoveDelta(Math.round(wp.x-_dragMove.worldStart.x), Math.round(wp.z-_dragMove.worldStart.z), 0);
+    } else if (dvp==='front') {
+      const wp=frontToWorld(cx,cy); if(!wp) return;
+      _applyMoveDelta(Math.round(wp.x-_dragMove.worldStart.x), 0, parseFloat((wp.y-_dragMove.worldStart.y).toFixed(2)));
+    } else if (dvp==='side') {
+      const wp=sideToWorld(cx,cy); if(!wp) return;
+      _applyMoveDelta(0, Math.round(wp.z-_dragMove.worldStart.z), parseFloat((wp.y-_dragMove.worldStart.y).toFixed(2)));
+    }
     return;
   }
 
@@ -899,6 +919,27 @@ function _onMouseMove(cx, cy, dx, dy) {
     if(wp) { hoverMesh.position.set(Math.round(wp.x),0.01,Math.round(wp.z)); hoverMesh.visible=true; }
   } else if(vp!=='top') hoverMesh.visible=false;
 
+  // Cursor feedback in select mode
+  if (ES.tool==='select' && !mouseButtons.left) {
+    if (_dragMove) {
+      canvas.style.cursor='grabbing';
+    } else {
+      const ht=_raycastHandles(cx,cy,vp);
+      if (ht) {
+        // Corner handles → diagonal resize; edge handles → axis resize
+        const isCorner=CORNER_AXES.includes(ht);
+        const isX=(ht==='xMin'||ht==='xMax');
+        const isY=(ht==='yMin'||ht==='yMax');
+        canvas.style.cursor = isCorner ? 'nwse-resize' : isY ? 'ns-resize' : isX ? 'ew-resize' : 'ns-resize';
+      } else {
+        const ud=_raycastLevel(cx,cy,vp);
+        canvas.style.cursor = (ud && ud.kind && ud.kind!=='_entityRange') ? 'grab' : 'default';
+      }
+    }
+  } else if (ES.tool==='select' && mouseButtons.left && _dragMove) {
+    canvas.style.cursor='grabbing';
+  }
+
   // Coord readout
   if (vp==='top') {
     const wp=topToWorld(cx,cy);
@@ -907,42 +948,44 @@ function _onMouseMove(cx, cy, dx, dy) {
 }
 
 // ── Move drag helpers ─────────────────────────────────────────────────────────
-function _startMoveDrag(worldPos) {
+function _startMoveDrag(worldPos, vp) {
   _pushUndo();
   _dragMove = {
-    worldStart: { x: worldPos.x, z: worldPos.z },
+    vp: vp || 'top',
+    worldStart: { x: worldPos.x||0, y: worldPos.y||0, z: worldPos.z||0 },
     origStates: ES.selection.map(s => {
       if (s.kind==='room') {
         const r=ES.rooms.find(r=>r.id===s.id);
-        return r ? {...s, orig:{xMin:r.xMin,xMax:r.xMax,zMin:r.zMin,zMax:r.zMax}} : {...s,orig:null};
+        return r ? {...s, orig:{xMin:r.xMin,xMax:r.xMax,zMin:r.zMin,zMax:r.zMax,yMin:0,yMax:0}} : {...s,orig:null};
       }
       if (s.kind==='standalone') {
         const t=ES.standaloneTiles.find(t=>t.id===s.id);
-        return t ? {...s, orig:{x:t.x,z:t.z}} : {...s,orig:null};
+        return t ? {...s, orig:{x:t.x,z:t.z,y:0}} : {...s,orig:null};
       }
       if (s.kind==='decor') {
         const d=ES.decoratives.find(d=>d.id===s.id);
-        return d ? {...s, orig:{x:d.x,z:d.z}} : {...s,orig:null};
+        return d ? {...s, orig:{x:d.x,z:d.z,y:0}} : {...s,orig:null};
       }
       if (s.kind==='light') {
         const l=ES.lights.find(l=>l.id===s.id);
-        return l ? {...s, orig:{x:l.x,z:l.z}} : {...s,orig:null};
+        return l ? {...s, orig:{x:l.x,z:l.z,y:0}} : {...s,orig:null};
       }
       if (s.kind==='brush') {
         const b=ES.brushes.find(b=>b.id===s.id);
-        return b ? {...s, orig:{xMin:b.xMin,xMax:b.xMax,zMin:b.zMin,zMax:b.zMax}} : {...s,orig:null};
+        return b ? {...s, orig:{xMin:b.xMin,xMax:b.xMax,zMin:b.zMin,zMax:b.zMax,yMin:b.yMin,yMax:b.yMax}} : {...s,orig:null};
       }
       if (s.kind==='entity') {
         const e=ES.entities.find(e=>e.id===s.id);
-        return e ? {...s, orig:{x:e.x,z:e.z}} : {...s,orig:null};
+        return e ? {...s, orig:{x:e.x,z:e.z,y:e.y??0}} : {...s,orig:null};
       }
       return {...s, orig:null};
     }),
   };
 }
 
-function _applyMoveDelta(dx, dz) {
+function _applyMoveDelta(dx, dz, dy=0) {
   if (!_dragMove) return;
+  dy = parseFloat(dy.toFixed(2));
   _dragMove.origStates.forEach(s => {
     if (!s.orig) return;
     if (s.kind==='room') {
@@ -956,13 +999,17 @@ function _applyMoveDelta(dx, dz) {
       const l=ES.lights.find(l=>l.id===s.id); if(l) { l.x=s.orig.x+dx; l.z=s.orig.z+dz; }
     } else if (s.kind==='brush') {
       const b=ES.brushes.find(b=>b.id===s.id);
-      if(b) { b.xMin=s.orig.xMin+dx; b.xMax=s.orig.xMax+dx; b.zMin=s.orig.zMin+dz; b.zMax=s.orig.zMax+dz; }
+      if(b) { b.xMin=s.orig.xMin+dx; b.xMax=s.orig.xMax+dx; b.zMin=s.orig.zMin+dz; b.zMax=s.orig.zMax+dz;
+              b.yMin=parseFloat((s.orig.yMin+dy).toFixed(2)); b.yMax=parseFloat((s.orig.yMax+dy).toFixed(2)); }
     } else if (s.kind==='entity') {
-      const e=ES.entities.find(e=>e.id===s.id); if(e) { e.x=s.orig.x+dx; e.z=s.orig.z+dz; }
+      const e=ES.entities.find(e=>e.id===s.id);
+      if(e) { e.x=s.orig.x+dx; e.z=s.orig.z+dz; e.y=parseFloat((s.orig.y+dy).toFixed(2)); }
     }
   });
   rebuildLevel();
-  _setStatus(`Move Δ(${dx>=0?'+':''}${dx}, ${dz>=0?'+':''}${dz})`);
+  const parts=[`Δx${dx>=0?'+':''}${dx}`, `Δz${dz>=0?'+':''}${dz}`];
+  if(dy!==0) parts.push(`Δy${dy>=0?'+':''}${dy}`);
+  _setStatus('Move ' + parts.join('  '));
 }
 
 // ── Marquee ───────────────────────────────────────────────────────────────────
@@ -2025,10 +2072,10 @@ function _renderVP(name, cam, isLive) {
   const bly=H-r.y-r.h;
   renderer.setViewport(r.x,bly,r.w,r.h); renderer.setScissor(r.x,bly,r.w,r.h); renderer.setScissorTest(true);
   renderer.clear(true,true,true);
-  scene.overrideMaterial=isLive?null:wireframeMat;
+  scene.overrideMaterial = isLive ? null : wireframeMat;
   renderer.render(scene,cam);
-  scene.overrideMaterial=null;
-  if(!isLive) renderer.clearDepth();
+  scene.overrideMaterial = null;
+  if(!isLive) renderer.clearDepth(); // helpers (grid, handles, selection) always on top in ortho
   renderer.render(helperScene,cam);
 }
 function animate() {
