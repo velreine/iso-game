@@ -72,17 +72,22 @@ scene.add(levelGroup);
 const wireframeMat = new THREE.MeshBasicMaterial({ color: 0x4a4a88, wireframe: true });
 
 // ── Grid helpers (helperScene — never wireframed) ─────────────────────────────
-const gridTop   = new THREE.GridHelper(80, 80, 0x303060, 0x1e1e3a);               // XZ
-const gridFront = new THREE.GridHelper(80, 80, 0x2a2a44, 0x18182e);               // XY
-gridFront.rotation.x = Math.PI / 2;
-const gridSide  = new THREE.GridHelper(80, 80, 0x2a2a44, 0x18182e);               // ZY
-gridSide.rotation.z  = Math.PI / 2;
+// Grid lines pass through integer coordinates — grid intersects at world 0,0,0.
+// Each grid is only made visible in the matching viewport to prevent other grids
+// projecting edge-on and overwriting the axis lines.
+function _makeGridHelper(size, divs, centerColor, lineColor) {
+  const g = new THREE.GridHelper(size, divs, centerColor, lineColor);
+  [g.material].flat().forEach(m => { m.depthTest = false; m.depthWrite = false; });
+  g.renderOrder = 100;
+  g.frustumCulled = false;
+  return g;
+}
 
-// Tiles are centered at integers; their edges fall at ±0.5, ±1.5, etc.
-// Shifting each grid by 0.5 in its two active axes puts grid lines on tile boundaries.
-gridTop.position.set(0.5, 0,   0.5);   // XZ: offset X and Z
-gridFront.position.set(0.5, 0.5, 0);   // XY: offset X and Y
-gridSide.position.set(0,   0.5, 0.5);  // ZY: offset Y and Z
+const gridTop   = _makeGridHelper(80, 80, 0xaaaaee, 0x555599); // XZ — top view
+const gridFront = _makeGridHelper(80, 80, 0x9999dd, 0x4d4d88); // XY — front view
+gridFront.rotation.x = Math.PI / 2;
+const gridSide  = _makeGridHelper(80, 80, 0x9999dd, 0x4d4d88); // ZY — side view
+gridSide.rotation.z = Math.PI / 2;
 
 helperScene.add(gridTop, gridFront, gridSide);
 
@@ -199,7 +204,7 @@ function _applyPerspCam() {
   perspCam.position.copy(perspPos);
   perspCam.lookAt(perspPos.clone().add(dir));
 }
-function _applyTopCam()   { topCam.position.set(topPanX,100,topPanZ); topCam.lookAt(topPanX,0,topPanZ); topCam.up.set(0,0,-1); }
+function _applyTopCam()   { topCam.position.set(topPanX,100,topPanZ); topCam.up.set(0,0,-1); topCam.lookAt(topPanX,0,topPanZ); }
 function _applyFrontCam() { frontCam.position.set(frontPanX,frontPanY,100); frontCam.lookAt(frontPanX,frontPanY,0); }
 function _applySideCam()  { sideCam.position.set(-100,sidePanY,sidePanZ); sideCam.lookAt(0,sidePanY,sidePanZ); }
 function _updateOrthoCameras() {
@@ -2479,7 +2484,12 @@ function _renderVP(name, cam, isLive) {
   const _axesToHide = _vpHideAxes[name] || [];
   const _savedVis = {};
   _axesToHide.forEach(ax=>{ _savedVis[ax]=handleMeshes[ax]?.visible; if(handleMeshes[ax]) handleMeshes[ax].visible=false; });
+  // Each ortho view only shows its own grid to prevent other grids projecting
+  // edge-on and overdrawing the axis lines. Persp shows all three.
+  const _gridVis = { top:[true,false,false], front:[false,true,false], side:[false,false,true], persp:[true,true,true] }[name] || [true,true,true];
+  [gridTop,gridFront,gridSide].forEach((g,i)=>{ g.visible=_gridVis[i]; });
   renderer.render(helperScene,cam);
+  [gridTop,gridFront,gridSide].forEach(g=>{ g.visible=true; });
   _axesToHide.forEach(ax=>{ if(handleMeshes[ax]) handleMeshes[ax].visible=_savedVis[ax]; });
 }
 function animate() {
