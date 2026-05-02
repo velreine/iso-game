@@ -1414,6 +1414,7 @@ function _showPropsForSelection() {
     else if(s.kind==='elevated') { const [x,z]=s.id.split(',').map(Number); data=ES.elevatedTiles.find(e=>e.x===x&&e.z===z); }
     else if(s.kind==='brush')    data=ES.brushes.find(b=>b.id===s.id);
     else if(s.kind==='entity')   data=ES.entities.find(e=>e.id===s.id);
+    else if(s.kind==='nav')      data=ES.navMesh.find(c=>c.id===s.id);
     return data?{kind:s.kind,data}:null;
   }).filter(Boolean);
   _showBatchProps(kinds,items,n);
@@ -1444,7 +1445,7 @@ function _showBatchProps(kinds, items, n) {
   // Returns the shared value if all items agree, or null if mixed
   const shared=(field)=>{ const vals=items.map(i=>i.data[field]); return vals.every(v=>v===vals[0])?vals[0]:null; };
 
-  // Row builders (blank value + "mixed" placeholder when values differ)
+  // Row builders
   const bnum=(l,id,field,step=1)=>{ const v=shared(field); return `<div class="prop-row"><label>${l}</label><input type="number" id="${id}" value="${v!==null?v:''}" step="${step}" placeholder="${v===null?'mixed':''}"></div>`; };
   const bcol=(l,id,field)=>{ const v=shared(field); const isMixed=v===null; const hex=isMixed?'#808080':'#'+((v||0)>>>0).toString(16).padStart(6,'0'); return `<div class="prop-row"><label>${l}</label><input type="color" id="${id}" value="${hex}"${isMixed?' title="Mixed — will override all" style="opacity:0.55"':''}></div>`; };
   const bsel=(l,id,field,opts)=>{ const v=shared(field); return `<div class="prop-row"><label>${l}</label><select id="${id}">${v===null?'<option value="" disabled selected>— mixed —</option>':''}${opts.map(o=>`<option value="${o}"${o===v?' selected':''}>${o}</option>`).join('')}</select></div>`; };
@@ -1468,11 +1469,54 @@ function _showBatchProps(kinds, items, n) {
     } else if(kind==='elevated'){
       html+=bnum('Elevation','bm-elev','elevation',0.3);
       html+=bsel('Type','bm-type','type',['step','platform']);
+
+    } else if(kind==='nav'){
+      // Positions are readonly — show as hint, move with arrow keys
+      const xs=[...new Set(items.map(i=>i.data.x))];
+      const zs=[...new Set(items.map(i=>i.data.z))];
+      const posHint=xs.length===1&&zs.length===1?`(${xs[0]}, ${zs[0]})`:`${n} positions`;
+      html+=`<p class="hint" style="margin:2px 0 6px">${posHint} — move with arrow keys</p>`;
+      html+=bnum('Elevation','bm-elev','elevation',0.1);
+      html+=bnum('Cost','bm-cost','cost',1);
+      // Group — only allow assigning to an existing group (no free-text)
+      const gShared=shared('navGroupId');
+      const gMixed=gShared===null&&ES.navGroups.length>0;
+      const gOpts=`<option value="">— none —</option>`
+        +ES.navGroups.map(g=>`<option value="${g.id}"${g.id===gShared?' selected':''}>${_escHtml(g.name)}</option>`).join('');
+      html+=`<div class="prop-row"><label>Group</label><select id="bm-navgroup">${gMixed?'<option value="" disabled selected>— mixed —</option>':''}${gOpts}</select></div>`;
+
     } else if(kind==='brush'){
-      html+=bnum('Y Min','bm-ymin','yMin',0.1);
-      html+=bnum('Y Max','bm-ymax','yMax',0.1);
+      const walkShared=shared('walkable');
+      html+=`<div class="prop-row"><label>Walkable</label><label style="display:flex;align-items:center;gap:5px;width:auto">
+        <input type="checkbox" id="bm-walkable"${walkShared===true?' checked':''}${walkShared===null?' data-ind="1"':''} style="width:auto">
+        ${walkShared===null?'<span style="font-size:10px;color:var(--text-dim)">mixed</span>':''}</label></div>`;
+      html+=`<div class="prop-heading" style="margin-top:8px">Faces <span style="font-size:10px;color:var(--text-hint);font-weight:normal">each change applies to all</span></div>`;
+      html+=`<div class="face-grid">`;
+      FACE_ORDER.forEach(fk=>{
+        const fVals=items.map(i=>i.data.faces?.[fk]?.color??0x808080);
+        const fShared=fVals.every(v=>v===fVals[0])?fVals[0]:null;
+        const fHex='#'+(fShared!==null?fShared:0x808080).toString(16).padStart(6,'0');
+        const ndVals=items.map(i=>i.data.faces?.[fk]?.nodraw??false);
+        const ndShared=ndVals.every(v=>v===ndVals[0])?ndVals[0]:null;
+        html+=`<div class="face-row" data-face="${fk}">
+          <span class="face-lbl">${FACE_LABEL[fk]}</span>
+          <input type="color" id="bm-${fk}-col" value="${fHex}"${fShared===null?' title="Mixed" style="opacity:0.55"':''}>
+          <label class="nodraw-lbl"><input type="checkbox" id="bm-${fk}-nd"${ndShared===true?' checked':''}${ndShared===null?' data-ind="1"':''}> ND</label>
+        </div>`;
+      });
+      html+=`</div>`;
+
     } else if(kind==='entity'){
-      html+=bnum('X','bm-ex','x',1)+bnum('Y','bm-ey','y',0.1)+bnum('Z','bm-ez','z',1);
+      const etypes=[...new Set(items.map(i=>i.data.entityType))];
+      if(etypes.length===1&&etypes[0]==='decor'){
+        html+=bcol('Color','bm-color','color');
+        html+=bnum('W','bm-w','w',0.1)+bnum('H','bm-h','h',0.1)+bnum('D','bm-d','d',0.1);
+      } else if(etypes.length===1&&etypes[0]==='light'){
+        html+=bcol('Color','bm-color','color');
+        html+=bnum('Intensity','bm-int','intensity',0.1)+bnum('Distance','bm-dist','distance',1);
+      } else {
+        html+=`<p class="hint" style="margin-top:4px">Mixed entity types — no shared properties.</p>`;
+      }
     }
   } else {
     html+=`<p class="hint" style="margin-top:4px">Mixed types.</p>`;
@@ -1481,15 +1525,18 @@ function _showBatchProps(kinds, items, n) {
   html+=`<p class="hint" style="margin-top:6px;font-size:10px">Changes apply to all ${n} items  ·  Del=delete  Ctrl+D=dup</p>`;
   propsContent.innerHTML=html;
 
+  // Set indeterminate state on checkboxes that had mixed values
+  propsContent.querySelectorAll('[data-ind="1"]').forEach(el=>{ el.indeterminate=true; });
+
   // Bind helpers
-  const bBN=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseFloat(el.value); if(isNaN(v))return; _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
-  const bBC=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseInt(el.value.replace('#',''),16); _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
-  const bBS=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ if(!el.value)return; _pushUndo(); items.forEach(i=>{i.data[field]=el.value;}); rebuildLevel(); }); };
+  const bBN   =(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseFloat(el.value); if(isNaN(v))return; _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
+  const bBNInt=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=Math.round(parseFloat(el.value)); if(isNaN(v))return; _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
+  const bBC   =(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseInt(el.value.replace('#',''),16); _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
+  const bBS   =(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ if(!el.value)return; _pushUndo(); items.forEach(i=>{i.data[field]=el.value;}); rebuildLevel(); }); };
 
   if(sameKind){
     if(kind==='room'){
       bBN('bm-elev','elevation');
-      // Batch palette: show swatches; click to edit that index across all selected rooms
       const palEl=document.getElementById('bm-pal');
       const pickEl=document.getElementById('bm-swatch-pick');
       if(palEl&&pickEl){
@@ -1530,8 +1577,55 @@ function _showBatchProps(kinds, items, n) {
     else if(kind==='decor'){ bBC('bm-color','color'); bBN('bm-w','w'); bBN('bm-h','h'); bBN('bm-d','d'); }
     else if(kind==='light'){ bBC('bm-color','color'); bBN('bm-int','intensity'); bBN('bm-dist','distance'); }
     else if(kind==='elevated'){ bBN('bm-elev','elevation'); bBS('bm-type','type'); }
-    else if(kind==='brush'){ bBN('bm-ymin','yMin'); bBN('bm-ymax','yMax'); }
-    else if(kind==='entity'){ bBN('bm-ex','x'); bBN('bm-ey','y'); bBN('bm-ez','z'); }
+
+    else if(kind==='nav'){
+      bBN('bm-elev','elevation');
+      bBNInt('bm-cost','cost');
+      document.getElementById('bm-navgroup')?.addEventListener('change',e=>{
+        _pushUndo();
+        const gid=e.target.value||undefined;
+        items.forEach(i=>{ i.data.navGroupId=gid; });
+        _refreshLayersList();
+      });
+    }
+
+    else if(kind==='brush'){
+      const walkEl=document.getElementById('bm-walkable');
+      if(walkEl) walkEl.addEventListener('change',()=>{
+        _pushUndo(); items.forEach(i=>{i.data.walkable=walkEl.checked;}); rebuildLevel();
+      });
+      // Each face applies independently to all selected brushes
+      FACE_ORDER.forEach(fk=>{
+        const colEl=document.getElementById(`bm-${fk}-col`);
+        const ndEl =document.getElementById(`bm-${fk}-nd`);
+        colEl?.addEventListener('change',()=>{
+          const v=parseInt(colEl.value.replace('#',''),16);
+          _pushUndo();
+          items.forEach(i=>{
+            if(!i.data.faces) i.data.faces={};
+            if(!i.data.faces[fk]) i.data.faces[fk]={color:0x808080,nodraw:false};
+            i.data.faces[fk].color=v;
+          });
+          rebuildLevel();
+        });
+        ndEl?.addEventListener('change',()=>{
+          _pushUndo();
+          items.forEach(i=>{
+            if(!i.data.faces) i.data.faces={};
+            if(!i.data.faces[fk]) i.data.faces[fk]={color:0x808080,nodraw:false};
+            i.data.faces[fk].nodraw=ndEl.checked;
+          });
+          rebuildLevel();
+        });
+      });
+    }
+
+    else if(kind==='entity'){
+      const etypes=[...new Set(items.map(i=>i.data.entityType))];
+      if(etypes.length===1&&etypes[0]==='decor'){ bBC('bm-color','color'); bBN('bm-w','w'); bBN('bm-h','h'); bBN('bm-d','d'); }
+      else if(etypes.length===1&&etypes[0]==='light'){ bBC('bm-color','color'); bBN('bm-int','intensity'); bBN('bm-dist','distance'); }
+    }
+
   } else {
     bBN('bm-elev','elevation');
   }
