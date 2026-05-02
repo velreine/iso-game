@@ -657,10 +657,20 @@ function _updatePreviewBox() {
 // ── Raycaster ─────────────────────────────────────────────────────────────────
 const raycaster = new THREE.Raycaster();
 
+// Handles valid per viewport — prevents depth-axis handles intercepting rays in the wrong view
+const _vpHandleAxes = {
+  top:   ['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'],
+  front: ['xMin','xMax','yMin','yMax','xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'],
+  side:  ['zMin','zMax','yMin','yMax','zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'],
+};
 function _raycastHandles(cx, cy, vp) {
   if (!handlesGroup.visible) return null;
   raycaster.setFromCamera(toClip(vp,cx,cy), _camFor(vp));
-  const hits=raycaster.intersectObjects(Object.values(handleMeshes));
+  const allowed = _vpHandleAxes[vp];
+  const targets = Object.entries(handleMeshes)
+    .filter(([ax, m]) => m.visible && (!allowed || allowed.includes(ax)))
+    .map(([, m]) => m);
+  const hits = raycaster.intersectObjects(targets);
   return hits.length ? hits[0].object.userData.handleType : null;
 }
 
