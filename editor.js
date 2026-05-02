@@ -535,6 +535,10 @@ function _buildNavOverlay() {
 
 // Invisible hitbox for each nav cell — always built so cells are always clickable
 function _buildNavHitboxes() {
+  while (navHitboxGroup.children.length) {
+    const o = navHitboxGroup.children[0]; navHitboxGroup.remove(o);
+    o.geometry.dispose();
+  }
   const geo = new THREE.BoxGeometry(0.9, 0.08, 0.9);
   const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
   ES.navMesh.forEach(cell => {
