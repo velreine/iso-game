@@ -3,6 +3,8 @@
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const TILE_SIZE      = 1.0;
+// Snap a world coordinate to the nearest 0.5-unit grid position.
+const snapHalf = v => Math.round(v * 2) / 2;
 const TILE_THICKNESS = 0.22;
 const TILE_GAP       = 0.06;
 const STEP_H         = 0.3;
@@ -69,7 +71,7 @@ const helperScene = new THREE.Scene();
 const levelGroup  = new THREE.Group();
 scene.add(levelGroup);
 
-const wireframeMat = new THREE.MeshBasicMaterial({ color: 0x4a4a88, wireframe: true });
+const wireframeMat = new THREE.MeshBasicMaterial({ color: 0x44aadd, wireframe: true });
 
 // ── Grid helpers (helperScene — never wireframed) ─────────────────────────────
 // Grid lines pass through integer coordinates — grid intersects at world 0,0,0.
@@ -78,7 +80,7 @@ const wireframeMat = new THREE.MeshBasicMaterial({ color: 0x4a4a88, wireframe: t
 function _makeGridHelper(size, divs, centerColor, lineColor) {
   const g = new THREE.GridHelper(size, divs, centerColor, lineColor);
   [g.material].flat().forEach(m => { m.depthTest = false; m.depthWrite = false; });
-  g.renderOrder = 100;
+  g.renderOrder = 0;
   g.frustumCulled = false;
   return g;
 }
@@ -455,7 +457,7 @@ function _buildBrushMesh(brush) {
   // EdgesGeometry overlay in helperScene — draws clean box outlines (no diagonal artifacts)
   const edgeLines = new THREE.LineSegments(
     new THREE.EdgesGeometry(geo),
-    new THREE.LineBasicMaterial({ color: 0x6666aa, depthTest: false })
+    new THREE.LineBasicMaterial({ color: 0x44aadd, depthTest: false })
   );
   edgeLines.position.copy(pos);
   brushEdgeGroup.add(edgeLines);
@@ -884,7 +886,7 @@ function _onLeftDown(cx, cy, ctrl) {
   if ((ES.tool==='room'||ES.tool==='brush') && vp==='top') {
     const wp=topToWorld(cx,cy);
     if (wp) {
-      ES.drawing=true; ES.drawStart=ES.drawEnd={x:Math.round(wp.x),z:Math.round(wp.z)};
+      ES.drawing=true; ES.drawStart=ES.drawEnd={x:snapHalf(wp.x),z:snapHalf(wp.z)};
       _showDrawRect(true); _updateDrawRect(); _updatePreviewBox();
     }
     return;
@@ -1055,13 +1057,13 @@ function _onMouseMove(cx, cy, dx, dy) {
   // Room / brush draw
   if (mouseButtons.left && (ES.tool==='room'||ES.tool==='brush') && ES.drawing && vp==='top') {
     const wp=topToWorld(cx,cy);
-    if (wp) { ES.drawEnd={x:Math.round(wp.x),z:Math.round(wp.z)}; _updateDrawRect(); _updatePreviewBox(); }
+    if (wp) { ES.drawEnd={x:snapHalf(wp.x),z:snapHalf(wp.z)}; _updateDrawRect(); _updatePreviewBox(); }
   }
 
   // Hover highlight (top view only, non-drag)
   if (vp==='top'&&!mouseButtons.left) {
     const wp=topToWorld(cx,cy);
-    if(wp) { hoverMesh.position.set(Math.round(wp.x),0.01,Math.round(wp.z)); hoverMesh.visible=true; }
+    if(wp) { hoverMesh.position.set(snapHalf(wp.x),0.01,snapHalf(wp.z)); hoverMesh.visible=true; }
   } else if(vp!=='top') hoverMesh.visible=false;
 
   // Cursor feedback in select mode
