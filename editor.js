@@ -117,12 +117,19 @@ function _addSelOutline(mesh) {
 // ── Resize handles (shown for single room selection) ─────────────────────────
 const handlesGroup = new THREE.Group();
 helperScene.add(handlesGroup);
-const HANDLE_AXES  = ['xMin', 'xMax', 'zMin', 'zMax', 'yMin', 'yMax'];
-const HANDLE_COLOR = { xMin: 0xff4444, xMax: 0xff4444, zMin: 0x4488ff, zMax: 0x4488ff, yMin: 0x44cc44, yMax: 0x44cc44 };
+const HANDLE_AXES  = ['xMin', 'xMax', 'zMin', 'zMax', 'yMin', 'yMax',
+                      'xMinzMin', 'xMinzMax', 'xMaxzMin', 'xMaxzMax'];
+const HANDLE_COLOR = {
+  xMin: 0xff4444, xMax: 0xff4444, zMin: 0x4488ff, zMax: 0x4488ff,
+  yMin: 0x44cc44, yMax: 0x44cc44,
+  xMinzMin: 0xffcc00, xMinzMax: 0xffcc00, xMaxzMin: 0xffcc00, xMaxzMax: 0xffcc00,
+};
+const CORNER_AXES = ['xMinzMin', 'xMinzMax', 'xMaxzMin', 'xMaxzMax'];
 const handleMeshes = {};
 HANDLE_AXES.forEach(ax => {
+  const isCorner = CORNER_AXES.includes(ax);
   const m = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.5, 0.5),
+    new THREE.BoxGeometry(isCorner ? 0.4 : 0.5, isCorner ? 0.4 : 0.5, isCorner ? 0.4 : 0.5),
     new THREE.MeshBasicMaterial({ color: HANDLE_COLOR[ax] })
   );
   m.userData.handleType = ax;
@@ -529,6 +536,8 @@ function _updateRoomBoundsBox(roomId) {
   roomBoundsBox.visible=true;
 }
 function _updateHandles(id, kind) {
+  // Hide corners + y handles by default; shown per-kind below
+  CORNER_AXES.forEach(ax => { handleMeshes[ax].visible = false; });
   handleMeshes.yMin.visible = false;
   handleMeshes.yMax.visible = false;
   if (kind === 'room') {
@@ -540,6 +549,10 @@ function _updateHandles(id, kind) {
     handleMeshes.xMax.position.set(room.xMax+0.5,elev,mz);
     handleMeshes.zMin.position.set(mx,elev,room.zMin-0.5);
     handleMeshes.zMax.position.set(mx,elev,room.zMax+0.5);
+    handleMeshes.xMinzMin.position.set(room.xMin-0.5,elev,room.zMin-0.5); handleMeshes.xMinzMin.visible=true;
+    handleMeshes.xMinzMax.position.set(room.xMin-0.5,elev,room.zMax+0.5); handleMeshes.xMinzMax.visible=true;
+    handleMeshes.xMaxzMin.position.set(room.xMax+0.5,elev,room.zMin-0.5); handleMeshes.xMaxzMin.visible=true;
+    handleMeshes.xMaxzMax.position.set(room.xMax+0.5,elev,room.zMax+0.5); handleMeshes.xMaxzMax.visible=true;
   } else if (kind === 'brush') {
     const b=ES.brushes.find(b=>b.id===id);
     if (!b) { handlesGroup.visible=false; return; }
@@ -551,6 +564,10 @@ function _updateHandles(id, kind) {
     handleMeshes.zMax.position.set(mx,my,b.zMax+0.5);
     handleMeshes.yMin.position.set(mx,b.yMin,mz); handleMeshes.yMin.visible=true;
     handleMeshes.yMax.position.set(mx,b.yMax,mz); handleMeshes.yMax.visible=true;
+    handleMeshes.xMinzMin.position.set(b.xMin-0.5,my,b.zMin-0.5); handleMeshes.xMinzMin.visible=true;
+    handleMeshes.xMinzMax.position.set(b.xMin-0.5,my,b.zMax+0.5); handleMeshes.xMinzMax.visible=true;
+    handleMeshes.xMaxzMin.position.set(b.xMax+0.5,my,b.zMin-0.5); handleMeshes.xMaxzMin.visible=true;
+    handleMeshes.xMaxzMax.position.set(b.xMax+0.5,my,b.zMax+0.5); handleMeshes.xMaxzMax.visible=true;
   } else {
     handlesGroup.visible=false;
   }
@@ -816,14 +833,18 @@ function _onMouseMove(cx, cy, dx, dy) {
   // Handle resize
   if (_dragHandle && mouseButtons.left) {
     const o=_dragHandle.obj;
-    if (['xMin','xMax','zMin','zMax'].includes(_dragHandle.type)) {
+    if (['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'].includes(_dragHandle.type)) {
       const wp=topToWorld(cx,cy); if (!wp) return;
       const sx=Math.round(wp.x), sz=Math.round(wp.z);
       switch (_dragHandle.type) {
-        case 'xMin': o.xMin=Math.min(sx,o.xMax-1); break;
-        case 'xMax': o.xMax=Math.max(sx,o.xMin+1); break;
-        case 'zMin': o.zMin=Math.min(sz,o.zMax-1); break;
-        case 'zMax': o.zMax=Math.max(sz,o.zMin+1); break;
+        case 'xMin':    o.xMin=Math.min(sx,o.xMax-1); break;
+        case 'xMax':    o.xMax=Math.max(sx,o.xMin+1); break;
+        case 'zMin':    o.zMin=Math.min(sz,o.zMax-1); break;
+        case 'zMax':    o.zMax=Math.max(sz,o.zMin+1); break;
+        case 'xMinzMin': o.xMin=Math.min(sx,o.xMax-1); o.zMin=Math.min(sz,o.zMax-1); break;
+        case 'xMinzMax': o.xMin=Math.min(sx,o.xMax-1); o.zMax=Math.max(sz,o.zMin+1); break;
+        case 'xMaxzMin': o.xMax=Math.max(sx,o.xMin+1); o.zMin=Math.min(sz,o.zMax-1); break;
+        case 'xMaxzMax': o.xMax=Math.max(sx,o.xMin+1); o.zMax=Math.max(sz,o.zMin+1); break;
       }
       _setStatus(`${o.id}: x[${o.xMin}→${o.xMax}]  z[${o.zMin}→${o.zMax}]`);
     } else if (['yMin','yMax'].includes(_dragHandle.type)) {
@@ -858,12 +879,12 @@ function _onMouseMove(cx, cy, dx, dy) {
     _applyPerspCam();
   }
 
-  // Ortho middle-drag pan
-  if (mouseButtons.middle) {
-    const ps=orthoZoom/(canvas.clientWidth/2);
-    if(vp==='top')   { topPanX-=dx*ps; topPanZ+=dy*ps; _applyTopCam(); }
+  // Ortho pan — middle-drag or right-drag (non-persp)
+  if (mouseButtons.middle || (mouseButtons.right && vp!=='persp')) {
+    const ps=orthoZoom/(canvas.clientWidth/2)*3;
+    if(vp==='top')   { topPanX-=dx*ps; topPanZ-=dy*ps; _applyTopCam(); }
     if(vp==='front') { frontPanX-=dx*ps; frontPanY+=dy*ps; _applyFrontCam(); }
-    if(vp==='side')  { sidePanZ+=dx*ps; sidePanY+=dy*ps; _applySideCam(); }
+    if(vp==='side')  { sidePanZ-=dx*ps; sidePanY+=dy*ps; _applySideCam(); }
   }
 
   // Room / brush draw
@@ -1471,6 +1492,11 @@ function _refreshLayersList() {
 
 // ── Status ────────────────────────────────────────────────────────────────────
 function _setStatus(msg) { document.getElementById('status-text').textContent=msg; }
+function _switchToSelect() {
+  ES.tool='select';
+  document.querySelectorAll('.tool-btn').forEach(b=>b.classList.toggle('active', b.dataset.tool==='select'));
+  canvas.style.cursor='default';
+}
 
 // ── Toolbar + keyboard ────────────────────────────────────────────────────────
 document.getElementById('tool-buttons').querySelectorAll('.tool-btn').forEach(btn=>{
@@ -1484,6 +1510,31 @@ document.getElementById('tool-buttons').querySelectorAll('.tool-btn').forEach(bt
 });
 
 window.addEventListener('keydown',e=>{
+  // Escape / Enter — modal keyboard handling (runs before input-tag guard so
+  // it works even when focus is inside a field in the dialog).
+  if (e.key==='Escape' || e.key==='Enter') {
+    // Map each modal id → the primary action button id (null = no Enter action)
+    const modalMap = [
+      { modal:'brush-dialog',      primary:'bd-create'      },
+      { modal:'entity-dialog',     primary:'en-create'      },
+      { modal:'import-modal',      primary:'btn-do-import'  },
+      { modal:'export-modal',      primary:'btn-close-export'},
+      { modal:'load-level-modal',  primary: null             },
+    ];
+    for (const {modal, primary} of modalMap) {
+      const el=document.getElementById(modal);
+      if (el && !el.classList.contains('hidden')) {
+        e.preventDefault();
+        if (e.key==='Enter' && primary) {
+          document.getElementById(primary).click();
+        } else if (e.key==='Escape') {
+          el.classList.add('hidden');
+        }
+        return;
+      }
+    }
+  }
+
   if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
   _heldKeys.add(e.key.toLowerCase());
 
@@ -1651,6 +1702,7 @@ document.getElementById('bd-create').addEventListener('click', () => {
   selSet('brush', brush.id);
   _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
   brushDialog.classList.add('hidden'); _pendingBrushBounds = null;
+  _switchToSelect();
   _setStatus(`${brushClass==='trigger'?'Trigger zone':'Brush'} "${brush.id}" created  (${x1-x0+1}×${(yMax-yMin).toFixed(2)}×${z1-z0+1})`);
 });
 
@@ -1717,6 +1769,7 @@ document.getElementById('en-create').addEventListener('click', () => {
   selSet('entity', entity.id);
   _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
   entityDialog.classList.add('hidden'); _pendingEntityPos = null;
+  _switchToSelect();
   _setStatus(`Entity "${entity.id}" (${entityType}) placed at (${x}, ${z})`);
 });
 
