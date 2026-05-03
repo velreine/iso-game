@@ -5,10 +5,10 @@
 const TILE_SIZE      = 1.0;
 // Per-viewport snap settings (tile = cell centres, intersection = grid line crossings).
 const _vpSnap = {
-  top:   { tile: true,  intersection: false },
-  front: { tile: true,  intersection: false },
-  side:  { tile: true,  intersection: false },
-  persp: { tile: true,  intersection: false },
+  top:   { tile: true,  intersection: false, gridDepthTest: false },
+  front: { tile: true,  intersection: false, gridDepthTest: false },
+  side:  { tile: true,  intersection: false, gridDepthTest: false },
+  persp: { tile: true,  intersection: false, gridDepthTest: true  },
 };
 
 // Snap a world coordinate according to the active snap settings for a viewport.
@@ -806,6 +806,7 @@ const _ctxMenu        = document.getElementById('ctx-menu');
 const _ctxTitle       = document.getElementById('ctx-title');
 const _ctxSnapT       = document.getElementById('ctx-snap-tile');
 const _ctxSnapI       = document.getElementById('ctx-snap-intersection');
+const _ctxGridDepth   = document.getElementById('ctx-grid-depth');
 const _ctxGridSection = document.getElementById('ctx-grid-section');
 const _ctxGridXZ      = document.getElementById('ctx-grid-xz');
 const _ctxGridXY      = document.getElementById('ctx-grid-xy');
@@ -819,8 +820,9 @@ const _perspGridVis = { xz: true, xy: true, zy: true };
 function _showCtxMenu(vp, screenX, screenY) {
   _ctxVP = vp;
   _ctxTitle.textContent = (_vpLabels[vp] || vp) + ' Options';
-  _ctxSnapT.checked = _vpSnap[vp].tile;
-  _ctxSnapI.checked = _vpSnap[vp].intersection;
+  _ctxSnapT.checked     = _vpSnap[vp].tile;
+  _ctxSnapI.checked     = _vpSnap[vp].intersection;
+  _ctxGridDepth.checked = _vpSnap[vp].gridDepthTest;
   // Show grid toggles only for the 3D view
   if (vp === 'persp') {
     _ctxGridXZ.checked = _perspGridVis.xz;
@@ -838,8 +840,9 @@ function _showCtxMenu(vp, screenX, screenY) {
 }
 function _hideCtxMenu() { _ctxMenu.classList.add('hidden'); _ctxVP = null; }
 
-_ctxSnapT.addEventListener('change', () => { if (_ctxVP) _vpSnap[_ctxVP].tile         = _ctxSnapT.checked; });
-_ctxSnapI.addEventListener('change', () => { if (_ctxVP) _vpSnap[_ctxVP].intersection = _ctxSnapI.checked; });
+_ctxSnapT.addEventListener('change',     () => { if (_ctxVP) _vpSnap[_ctxVP].tile         = _ctxSnapT.checked; });
+_ctxSnapI.addEventListener('change',     () => { if (_ctxVP) _vpSnap[_ctxVP].intersection = _ctxSnapI.checked; });
+_ctxGridDepth.addEventListener('change', () => { if (_ctxVP) _vpSnap[_ctxVP].gridDepthTest = _ctxGridDepth.checked; });
 _ctxGridXZ.addEventListener('change', () => { _perspGridVis.xz = _ctxGridXZ.checked; });
 _ctxGridXY.addEventListener('change', () => { _perspGridVis.xy = _ctxGridXY.checked; });
 _ctxGridZY.addEventListener('change', () => { _perspGridVis.zy = _ctxGridZY.checked; });
@@ -1045,7 +1048,7 @@ function _onMouseMove(cx, cy, dx, dy) {
     if (['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'].includes(ht)) {
       // Top-view XZ handles
       const wp=topToWorld(cx,cy); if (!wp) return;
-      const sx=Math.round(wp.x), sz=Math.round(wp.z);
+      const sx=snapGrid(wp.x,'top'), sz=snapGrid(wp.z,'top');
       switch (ht) {
         case 'xMin':     o.xMin=Math.min(sx,o.xMax-1); break;
         case 'xMax':     o.xMax=Math.max(sx,o.xMin+1); break;
@@ -1067,7 +1070,7 @@ function _onMouseMove(cx, cy, dx, dy) {
     } else if (['xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'].includes(ht)) {
       // Front-view XY corners
       const wp=frontToWorld(cx,cy); if (!wp) return;
-      const sx=Math.round(wp.x), sy=parseFloat(wp.y.toFixed(2));
+      const sx=snapGrid(wp.x,'front'), sy=parseFloat(wp.y.toFixed(2));
       switch (ht) {
         case 'xMinyMin': o.xMin=Math.min(sx,o.xMax-1); o.yMin=Math.min(sy,o.yMax-0.1); break;
         case 'xMinyMax': o.xMin=Math.min(sx,o.xMax-1); o.yMax=Math.max(sy,o.yMin+0.1); break;
@@ -1078,7 +1081,7 @@ function _onMouseMove(cx, cy, dx, dy) {
     } else if (['zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'].includes(ht)) {
       // Side-view ZY corners
       const wp=sideToWorld(cx,cy); if (!wp) return;
-      const sz=Math.round(wp.z), sy=parseFloat(wp.y.toFixed(2));
+      const sz=snapGrid(wp.z,'side'), sy=parseFloat(wp.y.toFixed(2));
       switch (ht) {
         case 'zMinyMin': o.zMin=Math.min(sz,o.zMax-1); o.yMin=Math.min(sy,o.yMax-0.1); break;
         case 'zMinyMax': o.zMin=Math.min(sz,o.zMax-1); o.yMax=Math.max(sy,o.yMin+0.1); break;
@@ -2565,7 +2568,12 @@ function _renderVP(name, cam, isLive) {
     ? [_perspGridVis.xz, _perspGridVis.xy, _perspGridVis.zy]
     : ({ top:[true,false,false], front:[false,true,false], side:[false,false,true] }[name] || [true,true,true]);
   [gridTop,gridFront,gridSide].forEach((g,i)=>{ g.visible=_gridVis[i]; });
+  // Apply per-viewport grid depth-test setting (on = grid respects solid geometry).
+  const _grids = [gridTop,gridFront,gridSide];
+  const _gdt = _vpSnap[name]?.gridDepthTest ?? false;
+  if (_gdt) _grids.forEach(g=>{ [g.material].flat().forEach(m=>{ m.depthTest=true; }); });
   renderer.render(helperScene,cam);
+  if (_gdt) _grids.forEach(g=>{ [g.material].flat().forEach(m=>{ m.depthTest=false; }); });
   [gridTop,gridFront,gridSide].forEach(g=>{ g.visible=true; });
   _axesToHide.forEach(ax=>{ if(handleMeshes[ax]) handleMeshes[ax].visible=_savedVis[ax]; });
 }
