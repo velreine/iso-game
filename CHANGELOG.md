@@ -6,6 +6,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.4] - 2026-05-03
+### Added
+- **Per-viewport "Show Brush Edges" toggle** — right-click any viewport to show or hide the `brushEdgeGroup` edge outlines drawn over solid brushes. Defaults to **on** in the three ortho views (Top, Front, Side) and **off** in the 3D perspective view. The toggle is stored in `_vpSnap[vp].showBrushEdges` and applied per-frame in `_renderVP` by setting `brushEdgeGroup.visible` immediately before `renderer.render(helperScene, cam)` and restoring it to `true` afterward so other systems are unaffected.
+- **Context menu HTML** (`editor.html`) — added the missing `<div id="ctx-menu">` markup, the Three.js and manifest `<script>` tags, and the closing `</body></html>` tags that were absent from the file.
+
+---
+
 ## [1.6.3] - 2026-05-03
 ### Added
 - **Viewport axis orientation labels** — small monospace labels (+X, -X, +Z, -Z, +Y, -Y) appear at the edges of all four editor viewports so the active world axes are always visible at a glance.

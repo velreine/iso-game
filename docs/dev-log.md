@@ -24,6 +24,7 @@ A step-by-step record of every feature added to the game, with the most importan
 19. [Stage 19 — Editor Load Level & Manifest Discovery (v1.6.0)](#stage-19)
 20. [Stage 20 — Navmesh Navigation Fix (v1.6.2)](#stage-20)
 21. [Stage 21 — Viewport Axis Orientation Labels (v1.6.3)](#stage-21)
+22. [Stage 22 — Per-Viewport Show Brush Edges Toggle (v1.6.4)](#stage-22)
 
 ---
 
@@ -1588,3 +1589,46 @@ function _updateAxisLabels3D() {
 ```
 
 DOM references and `THREE.Vector3` objects are cached outside the function so the hot path allocates nothing.
+
+<a name="stage-22"></a>
+## Stage 22 — Per-Viewport Show Brush Edges Toggle (v1.6.4)
+
+**Goal:** Let each viewport independently show or hide the `brushEdgeGroup` edge outlines that are drawn over solid brushes, with sensible defaults (on in ortho views, off in the 3D view).
+
+### `_vpSnap` — new `showBrushEdges` key
+
+A `showBrushEdges` boolean was added to every entry in the `_vpSnap` config object. The three ortho viewports default to `true`; the perspective viewport defaults to `false`:
+
+```js
+const _vpSnap = {
+  top:   { tile: true, intersection: false, gridDepthTest: false, showBrushEdges: true  },
+  front: { tile: true, intersection: false, gridDepthTest: false, showBrushEdges: true  },
+  side:  { tile: true, intersection: false, gridDepthTest: false, showBrushEdges: true  },
+  persp: { tile: true, intersection: false, gridDepthTest: true,  showBrushEdges: false },
+};
+```
+
+### Per-frame visibility in `_renderVP`
+
+Just before `renderer.render(helperScene, cam)`, `brushEdgeGroup.visible` is set from the snap state for the current viewport. It is restored to `true` immediately after so no other system sees it as persistently hidden:
+
+```js
+const _showEdges = _vpSnap[name]?.showBrushEdges ?? true;
+brushEdgeGroup.visible = _showEdges;
+renderer.render(helperScene, cam);
+brushEdgeGroup.visible = true;
+```
+
+### Context menu wiring
+
+A new `<label class="ctx-item"><input type="checkbox" id="ctx-brush-edges"> Show Brush Edges</label>` was added to the context menu in `editor.html`, positioned after the "Grid Depth Test" item. In `editor.js` the DOM reference, `_showCtxMenu` state sync, and `change` event listener mirror the existing pattern for the other snap toggles:
+
+```js
+const _ctxBrushEdges = document.getElementById('ctx-brush-edges');
+// inside _showCtxMenu:
+_ctxBrushEdges.checked = _vpSnap[vp].showBrushEdges;
+// event listener:
+_ctxBrushEdges.addEventListener('change', () => {
+  if (_ctxVP) _vpSnap[_ctxVP].showBrushEdges = _ctxBrushEdges.checked;
+});
+```

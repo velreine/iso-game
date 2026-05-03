@@ -5,10 +5,10 @@
 const TILE_SIZE      = 1.0;
 // Per-viewport snap settings (tile = cell centres, intersection = grid line crossings).
 const _vpSnap = {
-  top:   { tile: true,  intersection: false, gridDepthTest: false },
-  front: { tile: true,  intersection: false, gridDepthTest: false },
-  side:  { tile: true,  intersection: false, gridDepthTest: false },
-  persp: { tile: true,  intersection: false, gridDepthTest: true  },
+  top:   { tile: true, intersection: false, gridDepthTest: false, showBrushEdges: true  },
+  front: { tile: true, intersection: false, gridDepthTest: false, showBrushEdges: true  },
+  side:  { tile: true, intersection: false, gridDepthTest: false, showBrushEdges: true  },
+  persp: { tile: true, intersection: false, gridDepthTest: true,  showBrushEdges: false },
 };
 
 // Snap a world coordinate according to the active snap settings for a viewport.
@@ -807,6 +807,7 @@ const _ctxTitle       = document.getElementById('ctx-title');
 const _ctxSnapT       = document.getElementById('ctx-snap-tile');
 const _ctxSnapI       = document.getElementById('ctx-snap-intersection');
 const _ctxGridDepth   = document.getElementById('ctx-grid-depth');
+const _ctxBrushEdges  = document.getElementById('ctx-brush-edges');
 const _ctxGridSection = document.getElementById('ctx-grid-section');
 const _ctxGridXZ      = document.getElementById('ctx-grid-xz');
 const _ctxGridXY      = document.getElementById('ctx-grid-xy');
@@ -820,9 +821,10 @@ const _perspGridVis = { xz: true, xy: true, zy: true };
 function _showCtxMenu(vp, screenX, screenY) {
   _ctxVP = vp;
   _ctxTitle.textContent = (_vpLabels[vp] || vp) + ' Options';
-  _ctxSnapT.checked     = _vpSnap[vp].tile;
-  _ctxSnapI.checked     = _vpSnap[vp].intersection;
-  _ctxGridDepth.checked = _vpSnap[vp].gridDepthTest;
+  _ctxSnapT.checked       = _vpSnap[vp].tile;
+  _ctxSnapI.checked       = _vpSnap[vp].intersection;
+  _ctxGridDepth.checked   = _vpSnap[vp].gridDepthTest;
+  _ctxBrushEdges.checked  = _vpSnap[vp].showBrushEdges;
   // Show grid toggles only for the 3D view
   if (vp === 'persp') {
     _ctxGridXZ.checked = _perspGridVis.xz;
@@ -840,9 +842,10 @@ function _showCtxMenu(vp, screenX, screenY) {
 }
 function _hideCtxMenu() { _ctxMenu.classList.add('hidden'); _ctxVP = null; }
 
-_ctxSnapT.addEventListener('change',     () => { if (_ctxVP) _vpSnap[_ctxVP].tile         = _ctxSnapT.checked; });
-_ctxSnapI.addEventListener('change',     () => { if (_ctxVP) _vpSnap[_ctxVP].intersection = _ctxSnapI.checked; });
-_ctxGridDepth.addEventListener('change', () => { if (_ctxVP) _vpSnap[_ctxVP].gridDepthTest = _ctxGridDepth.checked; });
+_ctxSnapT.addEventListener('change',      () => { if (_ctxVP) _vpSnap[_ctxVP].tile           = _ctxSnapT.checked; });
+_ctxSnapI.addEventListener('change',      () => { if (_ctxVP) _vpSnap[_ctxVP].intersection   = _ctxSnapI.checked; });
+_ctxGridDepth.addEventListener('change',  () => { if (_ctxVP) _vpSnap[_ctxVP].gridDepthTest  = _ctxGridDepth.checked; });
+_ctxBrushEdges.addEventListener('change', () => { if (_ctxVP) _vpSnap[_ctxVP].showBrushEdges = _ctxBrushEdges.checked; });
 _ctxGridXZ.addEventListener('change', () => { _perspGridVis.xz = _ctxGridXZ.checked; });
 _ctxGridXY.addEventListener('change', () => { _perspGridVis.xy = _ctxGridXY.checked; });
 _ctxGridZY.addEventListener('change', () => { _perspGridVis.zy = _ctxGridZY.checked; });
@@ -2572,7 +2575,10 @@ function _renderVP(name, cam, isLive) {
   const _grids = [gridTop,gridFront,gridSide];
   const _gdt = _vpSnap[name]?.gridDepthTest ?? false;
   if (_gdt) _grids.forEach(g=>{ [g.material].flat().forEach(m=>{ m.depthTest=true; }); });
+  const _showEdges = _vpSnap[name]?.showBrushEdges ?? true;
+  brushEdgeGroup.visible = _showEdges;
   renderer.render(helperScene,cam);
+  brushEdgeGroup.visible = true;
   if (_gdt) _grids.forEach(g=>{ [g.material].flat().forEach(m=>{ m.depthTest=false; }); });
   [gridTop,gridFront,gridSide].forEach(g=>{ g.visible=true; });
   _axesToHide.forEach(ax=>{ if(handleMeshes[ax]) handleMeshes[ax].visible=_savedVis[ax]; });

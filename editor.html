@@ -301,6 +301,27 @@
     </div>
   </div>
 
+  <!-- ── Viewport context menu ─────────────────────────────────────────────── -->
+  <div id="ctx-menu" class="ctx-menu hidden">
+    <div id="ctx-title" class="ctx-title"></div>
+    <label class="ctx-item"><input type="checkbox" id="ctx-snap-tile"> Snap to Tile</label>
+    <label class="ctx-item"><input type="checkbox" id="ctx-snap-intersection"> Snap to Intersection</label>
+    <label class="ctx-item"><input type="checkbox" id="ctx-grid-depth"> Grid Depth Test</label>
+    <label class="ctx-item"><input type="checkbox" id="ctx-brush-edges"> Show Brush Edges</label>
+    <div id="ctx-grid-section" class="hidden">
+      <div class="ctx-separator"></div>
+      <label class="ctx-item"><input type="checkbox" id="ctx-grid-xz" checked> Grid XZ</label>
+      <label class="ctx-item"><input type="checkbox" id="ctx-grid-xy" checked> Grid XY</label>
+      <label class="ctx-item"><input type="checkbox" id="ctx-grid-zy" checked> Grid ZY</label>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="./levels/manifest.js"></script>
+  <script src="editor.js"></script>
+</body>
+</html>
+
   <!-- ── Viewport context menu ────────────────────────────────────────────── -->
   <div id="ctx-menu" class="ctx-menu hidden">
     <div class="ctx-title" id="ctx-title">View Options</div>
@@ -314,6 +335,27 @@
       <label class="ctx-item"><input type="checkbox" id="ctx-grid-xz"> Grid XZ (floor)</label>
       <label class="ctx-item"><input type="checkbox" id="ctx-grid-xy"> Grid XY (front)</label>
       <label class="ctx-item"><input type="checkbox" id="ctx-grid-zy"> Grid ZY (side)</label>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="./levels/manifest.js"></script>
+  <script src="editor.js"></script>
+</body>
+</html>
+
+  <!-- ── Viewport context menu ─────────────────────────────────────────────── -->
+  <div id="ctx-menu" class="ctx-menu hidden">
+    <div id="ctx-title" class="ctx-title"></div>
+    <label class="ctx-item"><input type="checkbox" id="ctx-snap-tile"> Snap to Tile</label>
+    <label class="ctx-item"><input type="checkbox" id="ctx-snap-intersection"> Snap to Intersection</label>
+    <label class="ctx-item"><input type="checkbox" id="ctx-grid-depth"> Grid Depth Test</label>
+    <label class="ctx-item"><input type="checkbox" id="ctx-brush-edges"> Show Brush Edges</label>
+    <div id="ctx-grid-section" class="hidden">
+      <div class="ctx-separator"></div>
+      <label class="ctx-item"><input type="checkbox" id="ctx-grid-xz" checked> Grid XZ</label>
+      <label class="ctx-item"><input type="checkbox" id="ctx-grid-xy" checked> Grid XY</label>
+      <label class="ctx-item"><input type="checkbox" id="ctx-grid-zy" checked> Grid ZY</label>
     </div>
   </div>
 
