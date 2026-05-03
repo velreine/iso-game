@@ -6,6 +6,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.6] - 2026-05-03
+### Changed
+- **Added `_getEntityByKind(kind, id)` helper** — consolidates all per-kind array lookups into a single function. Used in `_startMoveDrag`, `_applyMoveDelta`, `_moveSelection`, `_duplicateSelection`, `_showPropsForSelection` (both single and batch paths), and `_getItemDisplay`, replacing ~25 inline `.find()` chains.
+- **Unified prop-row template builders via `_propRow`** — a single `_propRow(l, id, v, type, opts, step)` function generates all property-panel `<div class="prop-row">` rows. `_tr`, `_tn`, `_tsel`, and `_tcol` are now thin one-liner wrappers over it, eliminating four nearly identical template strings.
+- **Extracted `_colorToHex` and removed all inline hex conversion** — the `_colorToHex(c, fallback)` helper added to the constants block is now used throughout: `_tcol` (via `_propRow`), `bcol` in `_buildBatchHTML`, the face-color `fHex` in the brush batch section, palette swatch rendering in both `_buildBatchHTML` and `_palRows`, and the `_hex` local in `_showBrushProps` (removed).
+- **Added module-level `_bindNumField` / `_bindColorField` helpers** — replace the locally-redefined `bN`/`bC` factory functions inside `_showNavProps`, `_showEntityProps`, and `_showBrushProps`. Each call site now passes the target object and field directly; `afterChange` is an optional callback.
+
 ## [1.6.5] - 2026-05-03
 ### Changed
 - **Extracted `SELECTION_COLOR` and `DEFAULT_FACE_COLOR` constants** — replaced all inline `0xffcc00` and `0x808080` literals across `editor.js` with named constants defined at the top of the file.

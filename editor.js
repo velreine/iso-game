@@ -5,6 +5,7 @@
 const TILE_SIZE          = 1.0;
 const SELECTION_COLOR    = 0xffcc00;  // selection highlight / handle corners
 const DEFAULT_FACE_COLOR = 0x808080;  // default brush face / entity colour
+const _colorToHex = (c, fallback=DEFAULT_FACE_COLOR) => '#' + ((c||fallback)>>>0).toString(16).padStart(6,'0');
 // Per-viewport snap settings (tile = cell centres, intersection = grid line crossings).
 const _vpSnap = {
   top:   { tile: true, intersection: false, gridDepthTest: false, showBrushEdges: true  },
@@ -73,6 +74,24 @@ function selClear()            { ES.selection = []; }
 // Convenience: first selected item of a kind
 function selFirst(kind)        { return ES.selection.find(s => s.kind === kind) || null; }
 function selSingle()           { return ES.selection.length === 1 ? ES.selection[0] : null; }
+
+function _getEntityByKind(kind, id) {
+  if (kind==='room')       return ES.rooms.find(r=>r.id===id)||null;
+  if (kind==='standalone') return ES.standaloneTiles.find(t=>t.id===id)||null;
+  if (kind==='elevated')   return ES.elevatedTiles.find(e=>e.id===id)||null;
+  if (kind==='brush')      return ES.brushes.find(b=>b.id===id)||null;
+  if (kind==='entity')     return ES.entities.find(e=>e.id===id)||null;
+  if (kind==='nav')        return ES.navMesh.find(c=>c.id===id)||null;
+  return null;
+}
+function _bindNumField(id, obj, field, afterChange=null, int=false) {
+  const el=document.getElementById(id); if(!el) return;
+  el.addEventListener('change', () => { obj[field]=int?parseInt(el.value):parseFloat(el.value); afterChange?.(); });
+}
+function _bindColorField(id, obj, field, afterChange=null) {
+  const el=document.getElementById(id); if(!el) return;
+  el.addEventListener('change', () => { obj[field]=parseInt(el.value.replace('#',''),16); afterChange?.(); });
+}
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
 const canvas   = document.getElementById('vp-canvas');
@@ -1180,26 +1199,12 @@ function _startMoveDrag(worldPos, vp) {
     vp: vp || 'top',
     worldStart: { x: worldPos.x||0, y: worldPos.y||0, z: worldPos.z||0 },
     origStates: ES.selection.map(s => {
-      if (s.kind==='room') {
-        const r=ES.rooms.find(r=>r.id===s.id);
-        return r ? {...s, orig:{xMin:r.xMin,xMax:r.xMax,zMin:r.zMin,zMax:r.zMax,yMin:0,yMax:0}} : {...s,orig:null};
-      }
-      if (s.kind==='standalone') {
-        const t=ES.standaloneTiles.find(t=>t.id===s.id);
-        return t ? {...s, orig:{x:t.x,z:t.z,y:0}} : {...s,orig:null};
-      }
-      if (s.kind==='brush') {
-        const b=ES.brushes.find(b=>b.id===s.id);
-        return b ? {...s, orig:{xMin:b.xMin,xMax:b.xMax,zMin:b.zMin,zMax:b.zMax,yMin:b.yMin,yMax:b.yMax}} : {...s,orig:null};
-      }
-      if (s.kind==='entity') {
-        const e=ES.entities.find(e=>e.id===s.id);
-        return e ? {...s, orig:{x:e.x,z:e.z,y:e.y??0}} : {...s,orig:null};
-      }
-      if (s.kind==='nav') {
-        const c=ES.navMesh.find(c=>c.id===s.id);
-        return c ? {...s, orig:{x:c.x,z:c.z,y:0}} : {...s,orig:null};
-      }
+      const ent=_getEntityByKind(s.kind,s.id);
+      if (!ent) return {...s, orig:null};
+      if (s.kind==='room')       return {...s, orig:{xMin:ent.xMin,xMax:ent.xMax,zMin:ent.zMin,zMax:ent.zMax,yMin:0,yMax:0}};
+      if (s.kind==='brush')      return {...s, orig:{xMin:ent.xMin,xMax:ent.xMax,zMin:ent.zMin,zMax:ent.zMax,yMin:ent.yMin,yMax:ent.yMax}};
+      if (s.kind==='entity')     return {...s, orig:{x:ent.x,z:ent.z,y:ent.y??0}};
+      if (s.kind==='standalone'||s.kind==='nav') return {...s, orig:{x:ent.x,z:ent.z,y:0}};
       return {...s, orig:null};
     }),
   };
@@ -1210,22 +1215,12 @@ function _applyMoveDelta(dx, dz, dy=0) {
   dy = parseFloat(dy.toFixed(2));
   _dragMove.origStates.forEach(s => {
     if (!s.orig) return;
-    if (s.kind==='room') {
-      const r=ES.rooms.find(r=>r.id===s.id);
-      if(r) { r.xMin=s.orig.xMin+dx; r.xMax=s.orig.xMax+dx; r.zMin=s.orig.zMin+dz; r.zMax=s.orig.zMax+dz; }
-    } else if (s.kind==='standalone') {
-      const t=ES.standaloneTiles.find(t=>t.id===s.id); if(t) { t.x=s.orig.x+dx; t.z=s.orig.z+dz; }
-    } else if (s.kind==='brush') {
-      const b=ES.brushes.find(b=>b.id===s.id);
-      if(b) { b.xMin=s.orig.xMin+dx; b.xMax=s.orig.xMax+dx; b.zMin=s.orig.zMin+dz; b.zMax=s.orig.zMax+dz;
-              b.yMin=parseFloat((s.orig.yMin+dy).toFixed(2)); b.yMax=parseFloat((s.orig.yMax+dy).toFixed(2)); }
-    } else if (s.kind==='entity') {
-      const e=ES.entities.find(e=>e.id===s.id);
-      if(e) { e.x=s.orig.x+dx; e.z=s.orig.z+dz; e.y=parseFloat((s.orig.y+dy).toFixed(2)); }
-    } else if (s.kind==='nav') {
-      const c=ES.navMesh.find(c=>c.id===s.id);
-      if(c) { c.x=s.orig.x+dx; c.z=s.orig.z+dz; }
-    }
+    const ent=_getEntityByKind(s.kind,s.id); if(!ent) return;
+    if (s.kind==='room')       { ent.xMin=s.orig.xMin+dx; ent.xMax=s.orig.xMax+dx; ent.zMin=s.orig.zMin+dz; ent.zMax=s.orig.zMax+dz; }
+    else if (s.kind==='standalone'||s.kind==='nav') { ent.x=s.orig.x+dx; ent.z=s.orig.z+dz; }
+    else if (s.kind==='brush') { ent.xMin=s.orig.xMin+dx; ent.xMax=s.orig.xMax+dx; ent.zMin=s.orig.zMin+dz; ent.zMax=s.orig.zMax+dz;
+                                 ent.yMin=parseFloat((s.orig.yMin+dy).toFixed(2)); ent.yMax=parseFloat((s.orig.yMax+dy).toFixed(2)); }
+    else if (s.kind==='entity') { ent.x=s.orig.x+dx; ent.z=s.orig.z+dz; ent.y=parseFloat((s.orig.y+dy).toFixed(2)); }
   });
   rebuildLevel();
   const parts=[`Δx${dx>=0?'+':''}${dx}`, `Δz${dz>=0?'+':''}${dz}`];
@@ -1281,21 +1276,11 @@ function _moveSelection(dx, dz, dy=0) {
   if (!ES.selection.length) return;
   _pushUndo();
   ES.selection.forEach(s => {
-    if (s.kind==='room') {
-      const r=ES.rooms.find(r=>r.id===s.id);
-      if(r) { r.xMin+=dx; r.xMax+=dx; r.zMin+=dz; r.zMax+=dz; }
-    } else if (s.kind==='standalone') {
-      const t=ES.standaloneTiles.find(t=>t.id===s.id); if(t) { t.x+=dx; t.z+=dz; }
-    } else if (s.kind==='brush') {
-      const b=ES.brushes.find(b=>b.id===s.id);
-      if(b) { b.xMin+=dx; b.xMax+=dx; b.zMin+=dz; b.zMax+=dz; b.yMin+=dy; b.yMax+=dy; }
-    } else if (s.kind==='entity') {
-      const e=ES.entities.find(e=>e.id===s.id);
-      if(e) { e.x+=dx; e.z+=dz; e.y=(e.y??0)+dy; }
-    } else if (s.kind==='nav') {
-      const c=ES.navMesh.find(c=>c.id===s.id);
-      if(c) { c.x+=dx; c.z+=dz; }
-    }
+    const ent=_getEntityByKind(s.kind,s.id); if(!ent) return;
+    if (s.kind==='room')       { ent.xMin+=dx; ent.xMax+=dx; ent.zMin+=dz; ent.zMax+=dz; }
+    else if (s.kind==='standalone'||s.kind==='nav') { ent.x+=dx; ent.z+=dz; }
+    else if (s.kind==='brush') { ent.xMin+=dx; ent.xMax+=dx; ent.zMin+=dz; ent.zMax+=dz; ent.yMin+=dy; ent.yMax+=dy; }
+    else if (s.kind==='entity') { ent.x+=dx; ent.z+=dz; ent.y=(ent.y??0)+dy; }
   });
   rebuildLevel();
 }
@@ -1305,22 +1290,13 @@ function _duplicateSelection() {
   _pushUndo();
   const newSel=[];
   ES.selection.forEach(s => {
-    if (s.kind==='room') {
-      const r=JSON.parse(JSON.stringify(ES.rooms.find(x=>x.id===s.id))); if(!r) return;
-      r.id=_nextId('room'); r.xMin+=2; r.xMax+=2; ES.rooms.push(r); newSel.push({kind:'room',id:r.id});
-    } else if (s.kind==='standalone') {
-      const t=JSON.parse(JSON.stringify(ES.standaloneTiles.find(x=>x.id===s.id))); if(!t) return;
-      t.id=_nextId('tile'); t.x+=1; ES.standaloneTiles.push(t); newSel.push({kind:'standalone',id:t.id});
-    } else if (s.kind==='brush') {
-      const b=JSON.parse(JSON.stringify(ES.brushes.find(x=>x.id===s.id))); if(!b) return;
-      b.id=_nextId('brush'); b.xMin+=2; b.xMax+=2; ES.brushes.push(b); newSel.push({kind:'brush',id:b.id});
-    } else if (s.kind==='entity') {
-      const e=JSON.parse(JSON.stringify(ES.entities.find(x=>x.id===s.id))); if(!e) return;
-      e.id=_nextId('entity'); e.x+=2; ES.entities.push(e); newSel.push({kind:'entity',id:e.id});
-    } else if (s.kind==='nav') {
-      const c=JSON.parse(JSON.stringify(ES.navMesh.find(x=>x.id===s.id))); if(!c) return;
-      c.id=_nextId('nav'); c.x+=1; ES.navMesh.push(c); newSel.push({kind:'nav',id:c.id});
-    }
+    const orig=_getEntityByKind(s.kind,s.id); if(!orig) return;
+    const copy=JSON.parse(JSON.stringify(orig));
+    if (s.kind==='room')       { copy.id=_nextId('room');   copy.xMin+=2; copy.xMax+=2; ES.rooms.push(copy);          newSel.push({kind:'room',id:copy.id}); }
+    else if (s.kind==='standalone') { copy.id=_nextId('tile');   copy.x+=1;             ES.standaloneTiles.push(copy); newSel.push({kind:'standalone',id:copy.id}); }
+    else if (s.kind==='brush') { copy.id=_nextId('brush');  copy.xMin+=2; copy.xMax+=2; ES.brushes.push(copy);        newSel.push({kind:'brush',id:copy.id}); }
+    else if (s.kind==='entity'){ copy.id=_nextId('entity'); copy.x+=2;                 ES.entities.push(copy);        newSel.push({kind:'entity',id:copy.id}); }
+    else if (s.kind==='nav')   { copy.id=_nextId('nav');    copy.x+=1;                 ES.navMesh.push(copy);         newSel.push({kind:'nav',id:copy.id}); }
   });
   ES.selection=newSel;
   // Always land back on Select so the copies can be moved immediately
@@ -1451,24 +1427,17 @@ function _showPropsForSelection() {
   if (n===0) { propsContent.innerHTML='<p class="hint">Nothing selected.</p>'; return; }
   if (n===1) {
     const {kind,id}=ES.selection[0];
-    if(kind==='room')            _showProps('room',       ES.rooms.find(r=>r.id===id));
-    else if(kind==='elevated')   _showProps('elevated',   ES.elevatedTiles.find(e=>e.id===id));
-    else if(kind==='standalone') _showProps('standalone', ES.standaloneTiles.find(s=>s.id===id));
-    else if(kind==='brush')      _showBrushProps(ES.brushes.find(b=>b.id===id));
-    else if(kind==='entity')   _showEntityProps(ES.entities.find(e=>e.id===id));
-    else if(kind==='nav')      _showNavProps(ES.navMesh.find(c=>c.id===id));
+    const ent=_getEntityByKind(kind,id);
+    if(kind==='brush')   _showBrushProps(ent);
+    else if(kind==='entity') _showEntityProps(ent);
+    else if(kind==='nav')    _showNavProps(ent);
+    else _showProps(kind, ent);
     return;
   }
   // Multi-select → batch editor
   const kinds=[...new Set(ES.selection.map(s=>s.kind))];
   const items=ES.selection.map(s=>{
-    let data=null;
-    if(s.kind==='room')            data=ES.rooms.find(r=>r.id===s.id);
-    else if(s.kind==='standalone') data=ES.standaloneTiles.find(t=>t.id===s.id);
-    else if(s.kind==='elevated')   data=ES.elevatedTiles.find(e=>e.id===s.id);
-    else if(s.kind==='brush')    data=ES.brushes.find(b=>b.id===s.id);
-    else if(s.kind==='entity')   data=ES.entities.find(e=>e.id===s.id);
-    else if(s.kind==='nav')      data=ES.navMesh.find(c=>c.id===s.id);
+    const data=_getEntityByKind(s.kind,s.id);
     return data?{kind:s.kind,data}:null;
   }).filter(Boolean);
   _showBatchProps(kinds,items,n);
@@ -1488,8 +1457,9 @@ function _showNavProps(cell) {
     ${_tn('Cost','np-cost',cell.cost??1)}
     <div class="prop-row"><label>Group</label><select id="np-group">${groupOpts}</select></div>`;
   document.getElementById('np-id')?.addEventListener('change',e=>{cell.id=e.target.value;rebuildLevel();_refreshLayersList();});
-  const bN=(id,f,int)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ cell[f]=int?parseInt(el.value):parseFloat(el.value); rebuildLevel(); }); };
-  bN('np-x','x',true); bN('np-z','z',true); bN('np-elev','elevation',false); bN('np-cost','cost',true);
+  const rebuild=()=>rebuildLevel();
+  _bindNumField('np-x',cell,'x',rebuild,true); _bindNumField('np-z',cell,'z',rebuild,true);
+  _bindNumField('np-elev',cell,'elevation',rebuild); _bindNumField('np-cost',cell,'cost',rebuild,true);
   document.getElementById('np-group')?.addEventListener('change',e=>{
     cell.navGroupId=e.target.value||undefined; _refreshLayersList();
   });
@@ -1498,7 +1468,7 @@ function _showNavProps(cell) {
 function _buildBatchHTML(kinds, items, n) {
   const shared = (field) => { const vals=items.map(i=>i.data[field]); return vals.every(v=>v===vals[0])?vals[0]:null; };
   const bnum = (l,id,field,step=1) => { const v=shared(field); return `<div class="prop-row"><label>${l}</label><input type="number" id="${id}" value="${v!==null?v:''}" step="${step}" placeholder="${v===null?'mixed':''}"></div>`; };
-  const bcol = (l,id,field) => { const v=shared(field); const isMixed=v===null; const hex=isMixed?'#808080':'#'+((v||0)>>>0).toString(16).padStart(6,'0'); return `<div class="prop-row"><label>${l}</label><input type="color" id="${id}" value="${hex}"${isMixed?' title="Mixed — will override all" style="opacity:0.55"':''}></div>`; };
+  const bcol = (l,id,field) => { const v=shared(field); const isMixed=v===null; const hex=isMixed?'#808080':_colorToHex(v,0); return `<div class="prop-row"><label>${l}</label><input type="color" id="${id}" value="${hex}"${isMixed?' title="Mixed — will override all" style="opacity:0.55"':''}></div>`; };
   const bsel = (l,id,field,opts) => { const v=shared(field); return `<div class="prop-row"><label>${l}</label><select id="${id}">${v===null?'<option value="" disabled selected>— mixed —</option>':''}${opts.map(o=>`<option value="${o}"${o===v?' selected':''}>${o}</option>`).join('')}</select></div>`; };
 
   const sameKind=kinds.length===1, kind=kinds[0];
@@ -1535,7 +1505,7 @@ function _buildBatchHTML(kinds, items, n) {
       FACE_ORDER.forEach(fk=>{
         const fVals=items.map(i=>i.data.faces?.[fk]?.color??DEFAULT_FACE_COLOR);
         const fShared=fVals.every(v=>v===fVals[0])?fVals[0]:null;
-        const fHex='#'+(fShared!==null?fShared:DEFAULT_FACE_COLOR).toString(16).padStart(6,'0');
+        const fHex=_colorToHex(fShared, DEFAULT_FACE_COLOR);
         const ndVals=items.map(i=>i.data.faces?.[fk]?.nodraw??false);
         const ndShared=ndVals.every(v=>v===ndVals[0])?ndVals[0]:null;
         html+=`<div class="face-row" data-face="${fk}">
@@ -1584,7 +1554,7 @@ function _bindBatchHandlers(kinds, items) {
         for (let idx=0;idx<maxLen;idx++) {
           const vals=items.map(i=>(i.data.palette||[])[idx]).filter(v=>v!==undefined);
           const same=vals.length&&vals.every(v=>v===vals[0]);
-          const hex=same?'#'+vals[0].toString(16).padStart(6,'0'):'#404040';
+          const hex=same?_colorToHex(vals[0]):'#404040';
           sw+=`<span class="palette-swatch" style="background:${hex}${!same?';outline:1px dashed #888':''}" data-idx="${idx}" title="${same?'Click to edit':'Mixed — click to unify'}"><span class="swatch-del">✕</span></span>`;
         }
         palEl.innerHTML=sw;
@@ -1606,7 +1576,7 @@ function _bindBatchHandlers(kinds, items) {
             }
             _pickIdx=+sw.dataset.idx;
             const vals=items.map(i=>(i.data.palette||[])[_pickIdx]).filter(v=>v!==undefined);
-            pickEl.value='#'+(vals.length?vals[0]:DEFAULT_FACE_COLOR).toString(16).padStart(6,'0');
+            pickEl.value=_colorToHex(vals[0]);
             pickEl.click();
           });
         });
@@ -1677,13 +1647,21 @@ function _showProps(kind, data) {
   _bindProps(kind,data);
 }
 
-const _tr  =(l,id,v)=>     `<div class="prop-row"><label>${l}</label><input type="text"   id="${id}" value="${v||''}"></div>`;
-const _tn  =(l,id,v,s=1)=> `<div class="prop-row"><label>${l}</label><input type="number" id="${id}" value="${v||0}" step="${s}"></div>`;
-const _tsel=(l,id,v,opts)=>`<div class="prop-row"><label>${l}</label><select id="${id}">${opts.map(o=>`<option value="${o}"${o===v?' selected':''}>${o}</option>`).join('')}</select></div>`;
-const _tcol=(l,id,v)=>{ const h='#'+((v||DEFAULT_FACE_COLOR)>>>0).toString(16).padStart(6,'0'); return `<div class="prop-row"><label>${l}</label><input type="color" id="${id}" value="${h}"></div>`; };
+function _propRow(l, id, v, type='text', opts=null, step=1) {
+  let input;
+  if      (type==='select') input=`<select id="${id}">${opts.map(o=>`<option value="${o}"${o===v?' selected':''}>${o}</option>`).join('')}</select>`;
+  else if (type==='color')  input=`<input type="color" id="${id}" value="${_colorToHex(v)}">`;
+  else if (type==='number') input=`<input type="number" id="${id}" value="${v||0}" step="${step}">`;
+  else                      input=`<input type="text" id="${id}" value="${v||''}">`;
+  return `<div class="prop-row"><label>${l}</label>${input}</div>`;
+}
+const _tr  = (l,id,v)      => _propRow(l, id, v);
+const _tn  = (l,id,v,s=1)  => _propRow(l, id, v, 'number', null, s);
+const _tsel= (l,id,v,opts) => _propRow(l, id, v, 'select', opts);
+const _tcol= (l,id,v)      => _propRow(l, id, v, 'color');
 function _palRows(room) {
   if(!room.palette) return '';
-  const sw=room.palette.map((c,i)=>{const h='#'+c.toString(16).padStart(6,'0');return `<span class="palette-swatch" style="background:${h}" data-idx="${i}"><span class="swatch-del">✕</span></span>`;}).join('');
+  const sw=room.palette.map((c,i)=>{const h=_colorToHex(c,0);return `<span class="palette-swatch" style="background:${h}" data-idx="${i}"><span class="swatch-del">✕</span></span>`;}).join('');
   return `<div class="prop-row palette-row"><label>Palette</label><div class="palette-list" id="pp-pal">${sw}</div><button class="small-btn" id="pp-add">+ Add</button></div>`;
 }
 function _bindProps(kind,data) {
@@ -1699,13 +1677,14 @@ const layersList=document.getElementById('layers-list');
 const _escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 function _getItemDisplay(kind, id) {
+  const e=_getEntityByKind(kind,id); if(!e) return null;
   switch(kind) {
-    case 'room':       { const r=ES.rooms.find(r=>r.id===id);           return r ? {icon:'▣',name:r.id,sub:r.type} : null; }
-    case 'brush':      { const b=ES.brushes.find(b=>b.id===id);         return b ? {icon:b.brushClass==='trigger'?'◈':'⬛',name:b.id,sub:b.brushClass==='trigger'?`trigger:${b.triggerType||'enter'}`:'brush'} : null; }
-    case 'elevated':   { const et=ES.elevatedTiles.find(e=>e.id===id);   return et ? {icon:'▲',name:et.id,sub:'elev'} : null; }
-    case 'standalone': { const t=ES.standaloneTiles.find(t=>t.id===id); return t ? {icon:'◻',name:t.id,sub:'tile'} : null; }
-    case 'entity':     { const e=ES.entities.find(e=>e.id===id);        return e ? {icon:{decor:'□',light:'✦',spawn:'⊕'}[e.entityType]||'●',name:e.id,sub:e.entityType} : null; }
-    case 'nav':        { const c=ES.navMesh.find(c=>c.id===id);         return c ? {icon:'⬡',name:c.id,sub:`cost:${c.cost??1}`} : null; }
+    case 'room':       return {icon:'▣',name:e.id,sub:e.type};
+    case 'brush':      return {icon:e.brushClass==='trigger'?'◈':'⬛',name:e.id,sub:e.brushClass==='trigger'?`trigger:${e.triggerType||'enter'}`:'brush'};
+    case 'elevated':   return {icon:'▲',name:e.id,sub:'elev'};
+    case 'standalone': return {icon:'◻',name:e.id,sub:'tile'};
+    case 'entity':     return {icon:{decor:'□',light:'✦',spawn:'⊕'}[e.entityType]||'●',name:e.id,sub:e.entityType};
+    case 'nav':        return {icon:'⬡',name:e.id,sub:`cost:${e.cost??1}`};
     default: return null;
   }
 }
@@ -2221,12 +2200,10 @@ function _showEntityProps(entity) {
   document.getElementById('ep-id')?.addEventListener('change', e => { entity.id=e.target.value; rebuildLevel(); _refreshLayersList(); });
   document.getElementById('ep-type')?.addEventListener('change', e => { entity.entityType=e.target.value; rebuildLevel(); _showEntityProps(entity); });
 
-  const bN=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ entity[field]=parseFloat(el.value); rebuildLevel(); }); };
-  const bC=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ entity[field]=parseInt(el.value.replace('#',''),16); rebuildLevel(); }); };
-
-  bN('ep-x','x'); bN('ep-y','y'); bN('ep-z','z');
-  if (entity.entityType === 'decor') { bN('ep-w','w'); bN('ep-h','h'); bN('ep-d','d'); bC('ep-color','color'); }
-  if (entity.entityType === 'light') { bC('ep-color','color'); bN('ep-int','intensity'); bN('ep-dist','distance'); }
+  const rebuild=()=>rebuildLevel();
+  _bindNumField('ep-x',entity,'x',rebuild); _bindNumField('ep-y',entity,'y',rebuild); _bindNumField('ep-z',entity,'z',rebuild);
+  if (entity.entityType === 'decor') { _bindNumField('ep-w',entity,'w',rebuild); _bindNumField('ep-h',entity,'h',rebuild); _bindNumField('ep-d',entity,'d',rebuild); _bindColorField('ep-color',entity,'color',rebuild); }
+  if (entity.entityType === 'light') { _bindColorField('ep-color',entity,'color',rebuild); _bindNumField('ep-int',entity,'intensity',rebuild); _bindNumField('ep-dist',entity,'distance',rebuild); }
   // For spawn: X/Z changes also update ES.playerStart
   if (entity.entityType === 'spawn') {
     document.getElementById('ep-x')?.addEventListener('change', e => {
@@ -2243,12 +2220,11 @@ function _showEntityProps(entity) {
 // ── Brush properties panel ────────────────────────────────────────────────────
 function _showBrushProps(brush) {
   if (!brush) { propsContent.innerHTML='<p class="hint">Data not found.</p>'; return; }
-  const _hex = c => '#'+((c||DEFAULT_FACE_COLOR)>>>0).toString(16).padStart(6,'0');
   const isTrigger = brush.brushClass === 'trigger';
 
   let faceRows = FACE_ORDER.map(fk => {
     const f = (brush.faces||{})[fk] || {};
-    const col = _hex(f.color??DEFAULT_FACE_COLOR);
+    const col = _colorToHex(f.color);
     const nd  = f.nodraw ? ' checked' : '';
     const isSelFace = _selectedFace?.brushId===brush.id && _selectedFace?.faceKey===fk;
     return `<div class="face-row${isSelFace?' sel-face':''}" data-face="${fk}">
@@ -2290,9 +2266,10 @@ function _showBrushProps(brush) {
     <div class="face-grid">${faceRows}</div>`;
 
   // Bind fields
-  const bN=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ brush[field]=parseFloat(el.value); rebuildLevel(); _updateHandles(brush.id,'brush'); }); };
-  bN('bp-xmin','xMin'); bN('bp-xmax','xMax'); bN('bp-zmin','zMin'); bN('bp-zmax','zMax');
-  bN('bp-ymin','yMin'); bN('bp-ymax','yMax');
+  const afterBrush=()=>{ rebuildLevel(); _updateHandles(brush.id,'brush'); };
+  _bindNumField('bp-xmin',brush,'xMin',afterBrush); _bindNumField('bp-xmax',brush,'xMax',afterBrush);
+  _bindNumField('bp-zmin',brush,'zMin',afterBrush); _bindNumField('bp-zmax',brush,'zMax',afterBrush);
+  _bindNumField('bp-ymin',brush,'yMin',afterBrush); _bindNumField('bp-ymax',brush,'yMax',afterBrush);
   document.getElementById('bp-id')?.addEventListener('change', e => { brush.id=e.target.value; rebuildLevel(); _refreshLayersList(); });
   document.getElementById('bp-walkable')?.addEventListener('change', e => { brush.walkable=e.target.checked; });
   document.getElementById('bp-class')?.addEventListener('change', e => { brush.brushClass=e.target.value; rebuildLevel(); _showBrushProps(brush); });

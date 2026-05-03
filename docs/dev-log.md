@@ -26,6 +26,7 @@ A step-by-step record of every feature added to the game, with the most importan
 21. [Stage 21 — Viewport Axis Orientation Labels (v1.6.3)](#stage-21)
 22. [Stage 22 — Per-Viewport Show Brush Edges Toggle (v1.6.4)](#stage-22)
 23. [Stage 23 — editor.js Refactor: Constants, Legacy Removal, Split Batch Props (v1.6.5)](#stage-23)
+24. [Stage 24 — editor.js Refactor: Entity Lookup, Prop-Row Unification, Color Helper, Binding Helpers (v1.6.6)](#stage-24)
 
 ---
 
@@ -1692,4 +1693,71 @@ function _showBatchProps(kinds, items, n) {  // thin orchestrator
 ```
 
 Each of `_buildBatchHTML` and `_bindBatchHandlers` defines its own local helper closures (`shared`/`bnum`/`bcol`/`bsel` and `bBN`/`bBNInt`/`bBC`/`bBS` respectively) so neither leaks state into the other.
+
+---
+
+<a name="stage-24"></a>
+## Stage 24 — editor.js Refactor: Entity Lookup, Prop-Row Unification, Color Helper, Binding Helpers (v1.6.6)
+
+### Goal
+
+Continue the `editor.js` cleanup started in Stage 23 across four more items: a single entity-lookup helper to eliminate repeated per-kind `.find()` chains, a unified prop-row builder replacing four near-identical template strings, consistent color-to-hex conversion via the existing `_colorToHex` constant, and module-level input-binding helpers to replace locally-redefined `bN`/`bC` closures in three prop panels.
+
+### `_getEntityByKind` (item 1)
+
+All selection-driven code previously repeated the same five-branch `.find()` pattern. A single helper now owns those lookups:
+
+```js
+function _getEntityByKind(kind, id) {
+  if (kind==='room')       return ES.rooms.find(r=>r.id===id)||null;
+  if (kind==='standalone') return ES.standaloneTiles.find(t=>t.id===id)||null;
+  if (kind==='elevated')   return ES.elevatedTiles.find(e=>e.id===id)||null;
+  if (kind==='brush')      return ES.brushes.find(b=>b.id===id)||null;
+  if (kind==='entity')     return ES.entities.find(e=>e.id===id)||null;
+  if (kind==='nav')        return ES.navMesh.find(c=>c.id===id)||null;
+  return null;
+}
 ```
+
+Used in `_startMoveDrag`, `_applyMoveDelta`, `_moveSelection`, `_duplicateSelection`, `_showPropsForSelection`, and `_getItemDisplay` — replacing ~25 inline lookup chains.
+
+### `_propRow` unified template builder (item 2)
+
+The four template helpers (`_tr`, `_tn`, `_tsel`, `_tcol`) generated nearly identical `<div class="prop-row">` markup. They are now thin wrappers over a single function:
+
+```js
+function _propRow(l, id, v, type='text', opts=null, step=1) {
+  let input;
+  if      (type==='select') input=`<select id="${id}">...</select>`;
+  else if (type==='color')  input=`<input type="color" id="${id}" value="${_colorToHex(v)}">`;
+  else if (type==='number') input=`<input type="number" id="${id}" value="${v||0}" step="${step}">`;
+  else                      input=`<input type="text" id="${id}" value="${v||''}">`;
+  return `<div class="prop-row"><label>${l}</label>${input}</div>`;
+}
+const _tr  = (l,id,v)      => _propRow(l, id, v);
+const _tn  = (l,id,v,s=1)  => _propRow(l, id, v, 'number', null, s);
+const _tsel= (l,id,v,opts) => _propRow(l, id, v, 'select', opts);
+const _tcol= (l,id,v)      => _propRow(l, id, v, 'color');
+```
+
+### `_colorToHex` rollout (item 3)
+
+The `_colorToHex` helper added to the constants block is now used everywhere a hex color string is needed: inside `_propRow` for color inputs, `bcol` in `_buildBatchHTML`, face-color `fHex` in the brush batch loop, palette swatch rendering in `_buildBatchHTML` and `_palRows`, and `_showBrushProps` (which previously defined its own identical `_hex` local).
+
+### Module-level binding helpers (item 4)
+
+Three prop panels each defined a local `bN` / `bC` closure with the same shape. Two module-level helpers replace them all:
+
+```js
+function _bindNumField(id, obj, field, afterChange=null, int=false) {
+  const el=document.getElementById(id); if(!el) return;
+  el.addEventListener('change', () => { obj[field]=int?parseInt(el.value):parseFloat(el.value); afterChange?.(); });
+}
+function _bindColorField(id, obj, field, afterChange=null) {
+  const el=document.getElementById(id); if(!el) return;
+  el.addEventListener('change', () => { obj[field]=parseInt(el.value.replace('#',''),16); afterChange?.(); });
+}
+```
+
+Call sites pass the target object and field directly. `_showBrushProps` supplies `afterBrush = () => { rebuildLevel(); _updateHandles(brush.id,'brush'); }` as the callback; the nav and entity panels pass `() => rebuildLevel()`.
+
