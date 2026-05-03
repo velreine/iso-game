@@ -25,6 +25,7 @@ A step-by-step record of every feature added to the game, with the most importan
 20. [Stage 20 — Navmesh Navigation Fix (v1.6.2)](#stage-20)
 21. [Stage 21 — Viewport Axis Orientation Labels (v1.6.3)](#stage-21)
 22. [Stage 22 — Per-Viewport Show Brush Edges Toggle (v1.6.4)](#stage-22)
+23. [Stage 23 — editor.js Refactor: Constants, Legacy Removal, Split Batch Props (v1.6.5)](#stage-23)
 
 ---
 
@@ -1631,4 +1632,64 @@ _ctxBrushEdges.checked = _vpSnap[vp].showBrushEdges;
 _ctxBrushEdges.addEventListener('change', () => {
   if (_ctxVP) _vpSnap[_ctxVP].showBrushEdges = _ctxBrushEdges.checked;
 });
+```
+
+---
+
+<a name="stage-23"></a>
+## Stage 23 — editor.js Refactor: Constants, Legacy Removal, Split Batch Props (v1.6.5)
+
+### Goal
+
+Reduce noise and dead weight in `editor.js` across four concrete areas: named constants for repeated magic numbers, removal of the legacy `decoratives`/`lights` code paths, elimination of elevated-tile composite string IDs, and splitting the monolithic `_showBatchProps` into focused helpers.
+
+### Named constants (item 8)
+
+Two constants added at the top of the file replace all inline numeric literals:
+
+```js
+const SELECTION_COLOR    = 0xffcc00;  // selection highlight / handle corners
+const DEFAULT_FACE_COLOR = 0x808080;  // default brush face / entity colour
+```
+
+`SELECTION_COLOR` replaces three occurrences (`roomBoundsBox`, `BoxHelper`, and the 12 corner entries in `HANDLE_COLOR`). `DEFAULT_FACE_COLOR` replaces every `0x808080` in brush face defaults, batch palette helpers, and `_tcol`/`_hex` renderers.
+
+### Legacy decoratives / lights removal (item 6)
+
+After the migration code in `_loadLevel` was strengthened to always run (previously it skipped if `ES.entities` was already populated), the legacy arrays are guaranteed empty after every load. With that invariant in place:
+
+- The two `forEach` render calls in `rebuildLevel()` were removed.
+- All `'decor'` and `'light'` branches were removed from: `_finishMarquee`, `_moveSelection`, `_startMoveDrag`, `_applyMoveDelta`, `_duplicateSelection`, `_deleteSelected`, `_showPropsForSelection`, `_showProps`, `_bindProps`, `_showBatchProps` (both HTML and handler sections), `_getItemDisplay`, `_refreshLayersList` allItems, and the Ctrl+A handler.
+- The dead `_placeDecor()` and `_placeLight()` functions were removed.
+
+### Elevated tile composite IDs (item 7)
+
+Elevated tiles previously lacked a proper `id` field — selection used the string `"${x},${z}"` as a surrogate. This required `.split(',').map(Number)` parsing in five separate locations. The fix:
+
+```js
+// _loadLevel: assign IDs to tiles that predate this change
+ES.elevatedTiles = (lvl.elevatedTiles || []).map(et =>
+  et.id ? et : { ...et, id: _nextId('elev') }
+);
+// _buildElevatedTile: expose the id in userData
+mesh.userData = { kind:'elevated', id:et.id, x:et.x, z:et.z, ... };
+```
+
+All composite-ID references in `_findMeshById`, `_deleteSelected`, `_finishMarquee`, `_showPropsForSelection`, `_refreshLayersList`, and Ctrl+A were replaced with direct `et.id` lookups.
+
+### Splitting `_showBatchProps` (item 5)
+
+The 187-line function mixed three concerns. It is now three functions:
+
+```js
+function _buildBatchHTML(kinds, items, n)   // → HTML string, no side effects
+function _bindBatchHandlers(kinds, items)    // → wires DOM listeners
+function _showBatchProps(kinds, items, n) {  // thin orchestrator
+  propsContent.innerHTML = _buildBatchHTML(kinds, items, n);
+  propsContent.querySelectorAll('[data-ind="1"]').forEach(el => { el.indeterminate = true; });
+  _bindBatchHandlers(kinds, items);
+}
+```
+
+Each of `_buildBatchHTML` and `_bindBatchHandlers` defines its own local helper closures (`shared`/`bnum`/`bcol`/`bsel` and `bBN`/`bBNInt`/`bBC`/`bBS` respectively) so neither leaks state into the other.
 ```

@@ -2,7 +2,9 @@
 'use strict';
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const TILE_SIZE      = 1.0;
+const TILE_SIZE          = 1.0;
+const SELECTION_COLOR    = 0xffcc00;  // selection highlight / handle corners
+const DEFAULT_FACE_COLOR = 0x808080;  // default brush face / entity colour
 // Per-viewport snap settings (tile = cell centres, intersection = grid line crossings).
 const _vpSnap = {
   top:   { tile: true, intersection: false, gridDepthTest: false, showBrushEdges: true  },
@@ -125,7 +127,7 @@ function _makeEdgeBox(color) {
 // Preview box while drawing a room (green)
 const previewBox    = _makeEdgeBox(0x00ff50);
 // Single-room selection bounding box (yellow)
-const roomBoundsBox = _makeEdgeBox(0xffcc00);
+const roomBoundsBox = _makeEdgeBox(SELECTION_COLOR);
 
 // Pool of BoxHelpers for multi-selection outlines
 const selBoxPool = [];
@@ -135,7 +137,7 @@ function _clearSelBoxPool() {
 }
 function _addSelOutline(mesh) {
   if (!mesh) return;
-  const b = new THREE.BoxHelper(mesh, 0xffcc00);
+  const b = new THREE.BoxHelper(mesh, SELECTION_COLOR);
   helperScene.add(b);
   selBoxPool.push(b);
 }
@@ -150,9 +152,9 @@ const HANDLE_AXES  = ['xMin', 'xMax', 'zMin', 'zMax', 'yMin', 'yMax',
 const HANDLE_COLOR = {
   xMin: 0xff4444, xMax: 0xff4444, zMin: 0x4488ff, zMax: 0x4488ff,
   yMin: 0x44cc44, yMax: 0x44cc44,
-  xMinzMin: 0xffcc00, xMinzMax: 0xffcc00, xMaxzMin: 0xffcc00, xMaxzMax: 0xffcc00,
-  xMinyMin: 0xffcc00, xMinyMax: 0xffcc00, xMaxyMin: 0xffcc00, xMaxyMax: 0xffcc00,
-  zMinyMin: 0xffcc00, zMinyMax: 0xffcc00, zMaxyMin: 0xffcc00, zMaxyMax: 0xffcc00,
+  xMinzMin: SELECTION_COLOR, xMinzMax: SELECTION_COLOR, xMaxzMin: SELECTION_COLOR, xMaxzMax: SELECTION_COLOR,
+  xMinyMin: SELECTION_COLOR, xMinyMax: SELECTION_COLOR, xMaxyMin: SELECTION_COLOR, xMaxyMax: SELECTION_COLOR,
+  zMinyMin: SELECTION_COLOR, zMinyMax: SELECTION_COLOR, zMaxyMin: SELECTION_COLOR, zMaxyMax: SELECTION_COLOR,
 };
 const CORNER_AXES = ['xMinzMin', 'xMinzMax', 'xMaxzMin', 'xMaxzMax',
                      'xMinyMin', 'xMinyMax', 'xMaxyMin', 'xMaxyMax',
@@ -336,8 +338,6 @@ function rebuildLevel() {
   ES.elevatedTiles.forEach(_buildElevatedTile);
   ES.standaloneTiles.forEach(_buildStandaloneTile);
   _buildWalls();
-  ES.decoratives.forEach(_buildDecorMesh);   // legacy backward compat
-  ES.lights.forEach(_buildLightHelper);       // legacy backward compat
   ES.brushes.forEach(_buildBrushMesh);
   ES.entities.forEach(_buildEntityMesh);
   _buildNavOverlay();
@@ -390,7 +390,7 @@ function _buildElevatedTile(et) {
   const mesh=new THREE.Mesh(new THREE.BoxGeometry(TILE_SIZE-TILE_GAP,h,TILE_SIZE-TILE_GAP), _mat(et.type==='platform'?0x3a4868:0x485070));
   mesh.position.set(et.x,h/2-TILE_THICKNESS/2,et.z);
   mesh.receiveShadow=mesh.castShadow=true;
-  mesh.userData={kind:'elevated',x:et.x,z:et.z,elevation:et.elevation,type:et.type};
+  mesh.userData={kind:'elevated',id:et.id,x:et.x,z:et.z,elevation:et.elevation,type:et.type};
   levelGroup.add(mesh); tileMeshes.push(mesh);
   tmSet(et.x,et.z,{kind:'elevated',elevation:et.elevation,walkable:true});
 }
@@ -464,7 +464,7 @@ function _buildBrushMesh(brush) {
   const mats=FACE_ORDER.map(fk=>{
     const f=(brush.faces||{})[fk]||{};
     if (f.nodraw) return new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0,depthWrite:false});
-    return new THREE.MeshLambertMaterial({color:f.color??0x808080});
+    return new THREE.MeshLambertMaterial({color:f.color??DEFAULT_FACE_COLOR});
   });
   const mesh=new THREE.Mesh(geo,mats);
   mesh.position.copy(pos);
@@ -658,7 +658,7 @@ function _findMeshById(kind, id) {
   if (kind==='brush')      return brushMeshes.find(m=>m.userData.id===id)||null;
   if (kind==='entity')     return entityMeshes.find(m=>m.userData.kind==='entity'&&m.userData.id===id)||null;
   if (kind==='nav')        return navHitboxGroup.children.find(m=>m.userData.id===id)||null;
-  if (kind==='elevated')   { const [x,z]=id.split(',').map(Number); return tileMeshes.find(m=>m.userData.kind==='elevated'&&m.userData.x===x&&m.userData.z===z)||null; }
+  if (kind==='elevated')   return tileMeshes.find(m=>m.userData.kind==='elevated'&&m.userData.id===id)||null;
   return null;
 }
 
@@ -926,7 +926,7 @@ function _onLeftDown(cx, cy, ctrl) {
     if (ud) {
       const { kind, id: rawId, roomId, x, z, materialIndex } = ud;
       let kind2 = (kind==='tile'||kind==='wall') ? (roomId ? 'room' : (ud.kind==='standalone' ? 'standalone' : null)) : kind;
-      const id2   = kind2==='room' ? roomId : (kind2==='elevated' ? `${x},${z}` : rawId);
+      const id2   = kind2==='room' ? roomId : rawId;
       if (!kind2) return;
 
       // Face selection on already-selected brush
@@ -1188,14 +1188,6 @@ function _startMoveDrag(worldPos, vp) {
         const t=ES.standaloneTiles.find(t=>t.id===s.id);
         return t ? {...s, orig:{x:t.x,z:t.z,y:0}} : {...s,orig:null};
       }
-      if (s.kind==='decor') {
-        const d=ES.decoratives.find(d=>d.id===s.id);
-        return d ? {...s, orig:{x:d.x,z:d.z,y:0}} : {...s,orig:null};
-      }
-      if (s.kind==='light') {
-        const l=ES.lights.find(l=>l.id===s.id);
-        return l ? {...s, orig:{x:l.x,z:l.z,y:0}} : {...s,orig:null};
-      }
       if (s.kind==='brush') {
         const b=ES.brushes.find(b=>b.id===s.id);
         return b ? {...s, orig:{xMin:b.xMin,xMax:b.xMax,zMin:b.zMin,zMax:b.zMax,yMin:b.yMin,yMax:b.yMax}} : {...s,orig:null};
@@ -1223,10 +1215,6 @@ function _applyMoveDelta(dx, dz, dy=0) {
       if(r) { r.xMin=s.orig.xMin+dx; r.xMax=s.orig.xMax+dx; r.zMin=s.orig.zMin+dz; r.zMax=s.orig.zMax+dz; }
     } else if (s.kind==='standalone') {
       const t=ES.standaloneTiles.find(t=>t.id===s.id); if(t) { t.x=s.orig.x+dx; t.z=s.orig.z+dz; }
-    } else if (s.kind==='decor') {
-      const d=ES.decoratives.find(d=>d.id===s.id); if(d) { d.x=s.orig.x+dx; d.z=s.orig.z+dz; }
-    } else if (s.kind==='light') {
-      const l=ES.lights.find(l=>l.id===s.id); if(l) { l.x=s.orig.x+dx; l.z=s.orig.z+dz; }
     } else if (s.kind==='brush') {
       const b=ES.brushes.find(b=>b.id===s.id);
       if(b) { b.xMin=s.orig.xMin+dx; b.xMax=s.orig.xMax+dx; b.zMin=s.orig.zMin+dz; b.zMax=s.orig.zMax+dz;
@@ -1278,9 +1266,7 @@ function _finishMarquee(cssStart, cssEnd, vp, additive) {
     if (inMarquee(cx,elev,cz)) push('room',room.id);
   });
   ES.standaloneTiles.forEach(t => { if(inMarquee(t.x,t.elevation||0,t.z)) push('standalone',t.id); });
-  ES.decoratives.forEach(d => { if(inMarquee(d.x,d.y||0.5,d.z)) push('decor',d.id); });
-  ES.lights.forEach(l => { if(inMarquee(l.x,l.y||2,l.z)) push('light',l.id); });
-  ES.elevatedTiles.forEach(et => { if(inMarquee(et.x,et.elevation,et.z)) push('elevated',`${et.x},${et.z}`); });
+  ES.elevatedTiles.forEach(et => { if(inMarquee(et.x,et.elevation,et.z)) push('elevated',et.id); });
   ES.brushes.forEach(b => { const cx=(b.xMin+b.xMax)/2, cy=(b.yMin+b.yMax)/2, cz=(b.zMin+b.zMax)/2; if(inMarquee(cx,cy,cz)) push('brush',b.id); });
   ES.entities.forEach(e => { if(inMarquee(e.x, e.y??0.5, e.z)) push('entity',e.id); });
   ES.navMesh.forEach(c => { if(inMarquee(c.x, c.elevation??0, c.z)) push('nav',c.id); });
@@ -1300,10 +1286,6 @@ function _moveSelection(dx, dz, dy=0) {
       if(r) { r.xMin+=dx; r.xMax+=dx; r.zMin+=dz; r.zMax+=dz; }
     } else if (s.kind==='standalone') {
       const t=ES.standaloneTiles.find(t=>t.id===s.id); if(t) { t.x+=dx; t.z+=dz; }
-    } else if (s.kind==='decor') {
-      const d=ES.decoratives.find(d=>d.id===s.id); if(d) { d.x+=dx; d.z+=dz; }
-    } else if (s.kind==='light') {
-      const l=ES.lights.find(l=>l.id===s.id); if(l) { l.x+=dx; l.z+=dz; }
     } else if (s.kind==='brush') {
       const b=ES.brushes.find(b=>b.id===s.id);
       if(b) { b.xMin+=dx; b.xMax+=dx; b.zMin+=dz; b.zMax+=dz; b.yMin+=dy; b.yMax+=dy; }
@@ -1329,12 +1311,6 @@ function _duplicateSelection() {
     } else if (s.kind==='standalone') {
       const t=JSON.parse(JSON.stringify(ES.standaloneTiles.find(x=>x.id===s.id))); if(!t) return;
       t.id=_nextId('tile'); t.x+=1; ES.standaloneTiles.push(t); newSel.push({kind:'standalone',id:t.id});
-    } else if (s.kind==='decor') {
-      const d=JSON.parse(JSON.stringify(ES.decoratives.find(x=>x.id===s.id))); if(!d) return;
-      d.id=_nextId('decor'); d.x+=2; ES.decoratives.push(d); newSel.push({kind:'decor',id:d.id});
-    } else if (s.kind==='light') {
-      const l=JSON.parse(JSON.stringify(ES.lights.find(x=>x.id===s.id))); if(!l) return;
-      l.id=_nextId('light'); l.x+=2; ES.lights.push(l); newSel.push({kind:'light',id:l.id});
     } else if (s.kind==='brush') {
       const b=JSON.parse(JSON.stringify(ES.brushes.find(x=>x.id===s.id))); if(!b) return;
       b.id=_nextId('brush'); b.xMin+=2; b.xMax+=2; ES.brushes.push(b); newSel.push({kind:'brush',id:b.id});
@@ -1378,11 +1354,9 @@ function _deleteSelected() {
   if (!ES.selection.length) return;
   _pushUndo();
   ES.selection.forEach(s => {
-    if(s.kind==='room')       ES.rooms=ES.rooms.filter(r=>r.id!==s.id);
-    else if(s.kind==='decor') ES.decoratives=ES.decoratives.filter(d=>d.id!==s.id);
-    else if(s.kind==='light') ES.lights=ES.lights.filter(l=>l.id!==s.id);
+    if(s.kind==='room')            ES.rooms=ES.rooms.filter(r=>r.id!==s.id);
     else if(s.kind==='standalone') ES.standaloneTiles=ES.standaloneTiles.filter(t=>t.id!==s.id);
-    else if(s.kind==='elevated') { const [x,z]=s.id.split(',').map(Number); ES.elevatedTiles=ES.elevatedTiles.filter(e=>!(e.x===x&&e.z===z)); }
+    else if(s.kind==='elevated') ES.elevatedTiles=ES.elevatedTiles.filter(e=>e.id!==s.id);
     else if(s.kind==='brush') ES.brushes=ES.brushes.filter(b=>b.id!==s.id);
     else if(s.kind==='entity') ES.entities=ES.entities.filter(e=>e.id!==s.id);
     else if(s.kind==='nav') ES.navMesh=ES.navMesh.filter(c=>c.id!==s.id);
@@ -1394,10 +1368,8 @@ function _deleteSelected() {
         case 'room':       return ES.rooms.some(r=>r.id===ref.id);
         case 'brush':      return ES.brushes.some(b=>b.id===ref.id);
         case 'entity':     return ES.entities.some(e=>e.id===ref.id);
-        case 'decor':      return ES.decoratives.some(d=>d.id===ref.id);
-        case 'light':      return ES.lights.some(l=>l.id===ref.id);
         case 'standalone': return ES.standaloneTiles.some(t=>t.id===ref.id);
-        case 'elevated':   { const [x,z]=ref.id.split(',').map(Number); return ES.elevatedTiles.some(e=>e.x===x&&e.z===z); }
+        case 'elevated':   return ES.elevatedTiles.some(e=>e.id===ref.id);
         default: return true;
       }
     });
@@ -1479,12 +1451,10 @@ function _showPropsForSelection() {
   if (n===0) { propsContent.innerHTML='<p class="hint">Nothing selected.</p>'; return; }
   if (n===1) {
     const {kind,id}=ES.selection[0];
-    if(kind==='room')          _showProps('room',       ES.rooms.find(r=>r.id===id));
-    else if(kind==='elevated') { const [x,z]=id.split(',').map(Number); _showProps('elevated',ES.elevatedTiles.find(e=>e.x===x&&e.z===z)); }
+    if(kind==='room')            _showProps('room',       ES.rooms.find(r=>r.id===id));
+    else if(kind==='elevated')   _showProps('elevated',   ES.elevatedTiles.find(e=>e.id===id));
     else if(kind==='standalone') _showProps('standalone', ES.standaloneTiles.find(s=>s.id===id));
-    else if(kind==='decor')    _showProps('decor',      ES.decoratives.find(d=>d.id===id));
-    else if(kind==='light')    _showProps('light',      ES.lights.find(l=>l.id===id));
-    else if(kind==='brush')    _showBrushProps(ES.brushes.find(b=>b.id===id));
+    else if(kind==='brush')      _showBrushProps(ES.brushes.find(b=>b.id===id));
     else if(kind==='entity')   _showEntityProps(ES.entities.find(e=>e.id===id));
     else if(kind==='nav')      _showNavProps(ES.navMesh.find(c=>c.id===id));
     return;
@@ -1493,11 +1463,9 @@ function _showPropsForSelection() {
   const kinds=[...new Set(ES.selection.map(s=>s.kind))];
   const items=ES.selection.map(s=>{
     let data=null;
-    if(s.kind==='room')          data=ES.rooms.find(r=>r.id===s.id);
+    if(s.kind==='room')            data=ES.rooms.find(r=>r.id===s.id);
     else if(s.kind==='standalone') data=ES.standaloneTiles.find(t=>t.id===s.id);
-    else if(s.kind==='decor')    data=ES.decoratives.find(d=>d.id===s.id);
-    else if(s.kind==='light')    data=ES.lights.find(l=>l.id===s.id);
-    else if(s.kind==='elevated') { const [x,z]=s.id.split(',').map(Number); data=ES.elevatedTiles.find(e=>e.x===x&&e.z===z); }
+    else if(s.kind==='elevated')   data=ES.elevatedTiles.find(e=>e.id===s.id);
     else if(s.kind==='brush')    data=ES.brushes.find(b=>b.id===s.id);
     else if(s.kind==='entity')   data=ES.entities.find(e=>e.id===s.id);
     else if(s.kind==='nav')      data=ES.navMesh.find(c=>c.id===s.id);
@@ -1527,51 +1495,37 @@ function _showNavProps(cell) {
   });
 }
 
-function _showBatchProps(kinds, items, n) {
-  // Returns the shared value if all items agree, or null if mixed
-  const shared=(field)=>{ const vals=items.map(i=>i.data[field]); return vals.every(v=>v===vals[0])?vals[0]:null; };
-
-  // Row builders
-  const bnum=(l,id,field,step=1)=>{ const v=shared(field); return `<div class="prop-row"><label>${l}</label><input type="number" id="${id}" value="${v!==null?v:''}" step="${step}" placeholder="${v===null?'mixed':''}"></div>`; };
-  const bcol=(l,id,field)=>{ const v=shared(field); const isMixed=v===null; const hex=isMixed?'#808080':'#'+((v||0)>>>0).toString(16).padStart(6,'0'); return `<div class="prop-row"><label>${l}</label><input type="color" id="${id}" value="${hex}"${isMixed?' title="Mixed — will override all" style="opacity:0.55"':''}></div>`; };
-  const bsel=(l,id,field,opts)=>{ const v=shared(field); return `<div class="prop-row"><label>${l}</label><select id="${id}">${v===null?'<option value="" disabled selected>— mixed —</option>':''}${opts.map(o=>`<option value="${o}"${o===v?' selected':''}>${o}</option>`).join('')}</select></div>`; };
+function _buildBatchHTML(kinds, items, n) {
+  const shared = (field) => { const vals=items.map(i=>i.data[field]); return vals.every(v=>v===vals[0])?vals[0]:null; };
+  const bnum = (l,id,field,step=1) => { const v=shared(field); return `<div class="prop-row"><label>${l}</label><input type="number" id="${id}" value="${v!==null?v:''}" step="${step}" placeholder="${v===null?'mixed':''}"></div>`; };
+  const bcol = (l,id,field) => { const v=shared(field); const isMixed=v===null; const hex=isMixed?'#808080':'#'+((v||0)>>>0).toString(16).padStart(6,'0'); return `<div class="prop-row"><label>${l}</label><input type="color" id="${id}" value="${hex}"${isMixed?' title="Mixed — will override all" style="opacity:0.55"':''}></div>`; };
+  const bsel = (l,id,field,opts) => { const v=shared(field); return `<div class="prop-row"><label>${l}</label><select id="${id}">${v===null?'<option value="" disabled selected>— mixed —</option>':''}${opts.map(o=>`<option value="${o}"${o===v?' selected':''}>${o}</option>`).join('')}</select></div>`; };
 
   const sameKind=kinds.length===1, kind=kinds[0];
   let html=`<div class="prop-heading">${n} items${sameKind?' · '+kind:' · mixed'}</div>`;
 
-  if(sameKind){
-    if(kind==='room'){
+  if (sameKind) {
+    if (kind==='room') {
       html+=bnum('Elevation','bm-elev','elevation',0.3);
       html+=`<div class="prop-row palette-row"><label>Palette</label><div class="palette-list" id="bm-pal"></div><input type="color" id="bm-swatch-pick" style="opacity:0;width:0;height:0;padding:0;border:0;position:absolute"><button class="small-btn" id="bm-addpal">+ Add</button></div>`;
-    } else if(kind==='standalone'){
+    } else if (kind==='standalone') {
       html+=bnum('Elevation','bm-elev','elevation',0.3);
       html+=bcol('Color','bm-color','color');
-    } else if(kind==='decor'){
-      html+=bcol('Color','bm-color','color');
-      html+=bnum('W','bm-w','w',0.1)+bnum('H','bm-h','h',0.1)+bnum('D','bm-d','d',0.1);
-    } else if(kind==='light'){
-      html+=bcol('Color','bm-color','color');
-      html+=bnum('Intensity','bm-int','intensity',0.1)+bnum('Distance','bm-dist','distance',1);
-    } else if(kind==='elevated'){
+    } else if (kind==='elevated') {
       html+=bnum('Elevation','bm-elev','elevation',0.3);
       html+=bsel('Type','bm-type','type',['step','platform']);
-
-    } else if(kind==='nav'){
-      // Positions are readonly — show as hint, move with arrow keys
+    } else if (kind==='nav') {
       const xs=[...new Set(items.map(i=>i.data.x))];
       const zs=[...new Set(items.map(i=>i.data.z))];
       const posHint=xs.length===1&&zs.length===1?`(${xs[0]}, ${zs[0]})`:`${n} positions`;
       html+=`<p class="hint" style="margin:2px 0 6px">${posHint} — move with arrow keys</p>`;
       html+=bnum('Elevation','bm-elev','elevation',0.1);
       html+=bnum('Cost','bm-cost','cost',1);
-      // Group — only allow assigning to an existing group (no free-text)
       const gShared=shared('navGroupId');
       const gMixed=gShared===null&&ES.navGroups.length>0;
-      const gOpts=`<option value="">— none —</option>`
-        +ES.navGroups.map(g=>`<option value="${g.id}"${g.id===gShared?' selected':''}>${_escHtml(g.name)}</option>`).join('');
+      const gOpts=`<option value="">— none —</option>`+ES.navGroups.map(g=>`<option value="${g.id}"${g.id===gShared?' selected':''}>${_escHtml(g.name)}</option>`).join('');
       html+=`<div class="prop-row"><label>Group</label><select id="bm-navgroup">${gMixed?'<option value="" disabled selected>— mixed —</option>':''}${gOpts}</select></div>`;
-
-    } else if(kind==='brush'){
+    } else if (kind==='brush') {
       const walkShared=shared('walkable');
       html+=`<div class="prop-row"><label>Walkable</label><label style="display:flex;align-items:center;gap:5px;width:auto">
         <input type="checkbox" id="bm-walkable"${walkShared===true?' checked':''}${walkShared===null?' data-ind="1"':''} style="width:auto">
@@ -1579,9 +1533,9 @@ function _showBatchProps(kinds, items, n) {
       html+=`<div class="prop-heading" style="margin-top:8px">Faces <span style="font-size:10px;color:var(--text-hint);font-weight:normal">each change applies to all</span></div>`;
       html+=`<div class="face-grid">`;
       FACE_ORDER.forEach(fk=>{
-        const fVals=items.map(i=>i.data.faces?.[fk]?.color??0x808080);
+        const fVals=items.map(i=>i.data.faces?.[fk]?.color??DEFAULT_FACE_COLOR);
         const fShared=fVals.every(v=>v===fVals[0])?fVals[0]:null;
-        const fHex='#'+(fShared!==null?fShared:0x808080).toString(16).padStart(6,'0');
+        const fHex='#'+(fShared!==null?fShared:DEFAULT_FACE_COLOR).toString(16).padStart(6,'0');
         const ndVals=items.map(i=>i.data.faces?.[fk]?.nodraw??false);
         const ndShared=ndVals.every(v=>v===ndVals[0])?ndVals[0]:null;
         html+=`<div class="face-row" data-face="${fk}">
@@ -1591,13 +1545,12 @@ function _showBatchProps(kinds, items, n) {
         </div>`;
       });
       html+=`</div>`;
-
-    } else if(kind==='entity'){
+    } else if (kind==='entity') {
       const etypes=[...new Set(items.map(i=>i.data.entityType))];
-      if(etypes.length===1&&etypes[0]==='decor'){
+      if (etypes.length===1&&etypes[0]==='decor') {
         html+=bcol('Color','bm-color','color');
         html+=bnum('W','bm-w','w',0.1)+bnum('H','bm-h','h',0.1)+bnum('D','bm-d','d',0.1);
-      } else if(etypes.length===1&&etypes[0]==='light'){
+      } else if (etypes.length===1&&etypes[0]==='light') {
         html+=bcol('Color','bm-color','color');
         html+=bnum('Intensity','bm-int','intensity',0.1)+bnum('Distance','bm-dist','distance',1);
       } else {
@@ -1606,29 +1559,29 @@ function _showBatchProps(kinds, items, n) {
     }
   } else {
     html+=`<p class="hint" style="margin-top:4px">Mixed types.</p>`;
-    if(items.every(i=>i.data.elevation!==undefined)) html+=bnum('Elevation','bm-elev','elevation',0.3);
+    const bnum2=(l,id,field,step=1)=>{ const v=shared(field); return `<div class="prop-row"><label>${l}</label><input type="number" id="${id}" value="${v!==null?v:''}" step="${step}" placeholder="${v===null?'mixed':''}"></div>`; };
+    if (items.every(i=>i.data.elevation!==undefined)) html+=bnum2('Elevation','bm-elev','elevation',0.3);
   }
   html+=`<p class="hint" style="margin-top:6px;font-size:10px">Changes apply to all ${n} items  ·  Del=delete  Ctrl+D=dup</p>`;
-  propsContent.innerHTML=html;
+  return html;
+}
 
-  // Set indeterminate state on checkboxes that had mixed values
-  propsContent.querySelectorAll('[data-ind="1"]').forEach(el=>{ el.indeterminate=true; });
+function _bindBatchHandlers(kinds, items) {
+  const bBN    = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseFloat(el.value); if(isNaN(v))return; _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
+  const bBNInt = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=Math.round(parseFloat(el.value)); if(isNaN(v))return; _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
+  const bBC    = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseInt(el.value.replace('#',''),16); _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
+  const bBS    = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ if(!el.value)return; _pushUndo(); items.forEach(i=>{i.data[field]=el.value;}); rebuildLevel(); }); };
 
-  // Bind helpers
-  const bBN   =(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseFloat(el.value); if(isNaN(v))return; _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
-  const bBNInt=(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=Math.round(parseFloat(el.value)); if(isNaN(v))return; _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
-  const bBC   =(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseInt(el.value.replace('#',''),16); _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
-  const bBS   =(id,field)=>{ const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ if(!el.value)return; _pushUndo(); items.forEach(i=>{i.data[field]=el.value;}); rebuildLevel(); }); };
-
-  if(sameKind){
-    if(kind==='room'){
+  const sameKind=kinds.length===1, kind=kinds[0];
+  if (sameKind) {
+    if (kind==='room') {
       bBN('bm-elev','elevation');
       const palEl=document.getElementById('bm-pal');
       const pickEl=document.getElementById('bm-swatch-pick');
-      if(palEl&&pickEl){
+      if (palEl&&pickEl) {
         const maxLen=Math.max(...items.map(i=>(i.data.palette||[]).length),0);
         let sw='';
-        for(let idx=0;idx<maxLen;idx++){
+        for (let idx=0;idx<maxLen;idx++) {
           const vals=items.map(i=>(i.data.palette||[])[idx]).filter(v=>v!==undefined);
           const same=vals.length&&vals.every(v=>v===vals[0]);
           const hex=same?'#'+vals[0].toString(16).padStart(6,'0'):'#404040';
@@ -1637,15 +1590,15 @@ function _showBatchProps(kinds, items, n) {
         palEl.innerHTML=sw;
         let _pickIdx=-1;
         pickEl.addEventListener('change',()=>{
-          if(_pickIdx<0)return;
+          if (_pickIdx<0) return;
           const v=parseInt(pickEl.value.replace('#',''),16);
           _pushUndo();
-          items.forEach(i=>{if(!i.data.palette)i.data.palette=[];while(i.data.palette.length<=_pickIdx)i.data.palette.push(0x808080);i.data.palette[_pickIdx]=v;});
+          items.forEach(i=>{if(!i.data.palette)i.data.palette=[];while(i.data.palette.length<=_pickIdx)i.data.palette.push(DEFAULT_FACE_COLOR);i.data.palette[_pickIdx]=v;});
           rebuildLevel(); _showPropsForSelection();
         });
         palEl.querySelectorAll('.palette-swatch').forEach(sw=>{
           sw.addEventListener('click',e=>{
-            if(e.target.classList.contains('swatch-del')){
+            if (e.target.classList.contains('swatch-del')) {
               e.stopPropagation();
               const idx=+sw.dataset.idx; _pushUndo();
               items.forEach(i=>{if(i.data.palette)i.data.palette.splice(idx,1);});
@@ -1653,18 +1606,15 @@ function _showBatchProps(kinds, items, n) {
             }
             _pickIdx=+sw.dataset.idx;
             const vals=items.map(i=>(i.data.palette||[])[_pickIdx]).filter(v=>v!==undefined);
-            pickEl.value='#'+(vals.length?vals[0]:0x808080).toString(16).padStart(6,'0');
+            pickEl.value='#'+(vals.length?vals[0]:DEFAULT_FACE_COLOR).toString(16).padStart(6,'0');
             pickEl.click();
           });
         });
-        document.getElementById('bm-addpal')?.addEventListener('click',()=>{ _pushUndo(); items.forEach(i=>{if(!i.data.palette)i.data.palette=[];i.data.palette.push(0x808080);}); rebuildLevel(); _showPropsForSelection(); });
+        document.getElementById('bm-addpal')?.addEventListener('click',()=>{ _pushUndo(); items.forEach(i=>{if(!i.data.palette)i.data.palette=[];i.data.palette.push(DEFAULT_FACE_COLOR);}); rebuildLevel(); _showPropsForSelection(); });
       }
-    } else if(kind==='standalone'){ bBN('bm-elev','elevation'); bBC('bm-color','color'); }
-    else if(kind==='decor'){ bBC('bm-color','color'); bBN('bm-w','w'); bBN('bm-h','h'); bBN('bm-d','d'); }
-    else if(kind==='light'){ bBC('bm-color','color'); bBN('bm-int','intensity'); bBN('bm-dist','distance'); }
-    else if(kind==='elevated'){ bBN('bm-elev','elevation'); bBS('bm-type','type'); }
-
-    else if(kind==='nav'){
+    } else if (kind==='standalone') { bBN('bm-elev','elevation'); bBC('bm-color','color'); }
+    else if (kind==='elevated')     { bBN('bm-elev','elevation'); bBS('bm-type','type'); }
+    else if (kind==='nav') {
       bBN('bm-elev','elevation');
       bBNInt('bm-cost','cost');
       document.getElementById('bm-navgroup')?.addEventListener('change',e=>{
@@ -1673,48 +1623,39 @@ function _showBatchProps(kinds, items, n) {
         items.forEach(i=>{ i.data.navGroupId=gid; });
         _refreshLayersList();
       });
-    }
-
-    else if(kind==='brush'){
+    } else if (kind==='brush') {
       const walkEl=document.getElementById('bm-walkable');
-      if(walkEl) walkEl.addEventListener('change',()=>{
+      if (walkEl) walkEl.addEventListener('change',()=>{
         _pushUndo(); items.forEach(i=>{i.data.walkable=walkEl.checked;}); rebuildLevel();
       });
-      // Each face applies independently to all selected brushes
       FACE_ORDER.forEach(fk=>{
         const colEl=document.getElementById(`bm-${fk}-col`);
         const ndEl =document.getElementById(`bm-${fk}-nd`);
         colEl?.addEventListener('change',()=>{
-          const v=parseInt(colEl.value.replace('#',''),16);
-          _pushUndo();
-          items.forEach(i=>{
-            if(!i.data.faces) i.data.faces={};
-            if(!i.data.faces[fk]) i.data.faces[fk]={color:0x808080,nodraw:false};
-            i.data.faces[fk].color=v;
-          });
+          const v=parseInt(colEl.value.replace('#',''),16); _pushUndo();
+          items.forEach(i=>{ if(!i.data.faces)i.data.faces={}; if(!i.data.faces[fk])i.data.faces[fk]={color:DEFAULT_FACE_COLOR,nodraw:false}; i.data.faces[fk].color=v; });
           rebuildLevel();
         });
         ndEl?.addEventListener('change',()=>{
           _pushUndo();
-          items.forEach(i=>{
-            if(!i.data.faces) i.data.faces={};
-            if(!i.data.faces[fk]) i.data.faces[fk]={color:0x808080,nodraw:false};
-            i.data.faces[fk].nodraw=ndEl.checked;
-          });
+          items.forEach(i=>{ if(!i.data.faces)i.data.faces={}; if(!i.data.faces[fk])i.data.faces[fk]={color:DEFAULT_FACE_COLOR,nodraw:false}; i.data.faces[fk].nodraw=ndEl.checked; });
           rebuildLevel();
         });
       });
-    }
-
-    else if(kind==='entity'){
+    } else if (kind==='entity') {
       const etypes=[...new Set(items.map(i=>i.data.entityType))];
-      if(etypes.length===1&&etypes[0]==='decor'){ bBC('bm-color','color'); bBN('bm-w','w'); bBN('bm-h','h'); bBN('bm-d','d'); }
-      else if(etypes.length===1&&etypes[0]==='light'){ bBC('bm-color','color'); bBN('bm-int','intensity'); bBN('bm-dist','distance'); }
+      if (etypes.length===1&&etypes[0]==='decor') { bBC('bm-color','color'); bBN('bm-w','w'); bBN('bm-h','h'); bBN('bm-d','d'); }
+      else if (etypes.length===1&&etypes[0]==='light') { bBC('bm-color','color'); bBN('bm-int','intensity'); bBN('bm-dist','distance'); }
     }
-
   } else {
     bBN('bm-elev','elevation');
   }
+}
+
+function _showBatchProps(kinds, items, n) {
+  propsContent.innerHTML = _buildBatchHTML(kinds, items, n);
+  propsContent.querySelectorAll('[data-ind="1"]').forEach(el=>{ el.indeterminate=true; });
+  _bindBatchHandlers(kinds, items);
 }
 
 function _showProps(kind, data) {
@@ -1732,16 +1673,6 @@ function _showProps(kind, data) {
   else if(kind==='standalone') html=`<div class="prop-heading">Standalone Tile</div>
     ${_tn('X','ps-x',data.x)}${_tn('Z','ps-z',data.z)}
     ${_tn('Elevation','ps-elev',data.elevation||0,0.3)}${_tcol('Color','ps-color',data.color)}`;
-  else if(kind==='decor') html=`<div class="prop-heading">Decorative</div>
-    ${_tr('ID','pd-id',data.id)}
-    ${_tn('X','pd-x',data.x)}${_tn('Y','pd-y',data.y)}${_tn('Z','pd-z',data.z)}
-    ${_tn('W','pd-w',data.w,0.1)}${_tn('H','pd-h',data.h,0.1)}${_tn('D','pd-d',data.d,0.1)}
-    ${_tcol('Color','pd-color',data.color)}`;
-  else if(kind==='light') html=`<div class="prop-heading">Light</div>
-    ${_tr('ID','pl-id',data.id)}
-    ${_tn('X','pl-x',data.x)}${_tn('Y','pl-y',data.y)}${_tn('Z','pl-z',data.z)}
-    ${_tn('Intensity','pl-int',data.intensity,0.1)}${_tn('Distance','pl-dist',data.distance,1)}
-    ${_tcol('Color','pl-color',data.color)}`;
   propsContent.innerHTML=html;
   _bindProps(kind,data);
 }
@@ -1749,7 +1680,7 @@ function _showProps(kind, data) {
 const _tr  =(l,id,v)=>     `<div class="prop-row"><label>${l}</label><input type="text"   id="${id}" value="${v||''}"></div>`;
 const _tn  =(l,id,v,s=1)=> `<div class="prop-row"><label>${l}</label><input type="number" id="${id}" value="${v||0}" step="${s}"></div>`;
 const _tsel=(l,id,v,opts)=>`<div class="prop-row"><label>${l}</label><select id="${id}">${opts.map(o=>`<option value="${o}"${o===v?' selected':''}>${o}</option>`).join('')}</select></div>`;
-const _tcol=(l,id,v)=>{ const h='#'+((v||0x808080)>>>0).toString(16).padStart(6,'0'); return `<div class="prop-row"><label>${l}</label><input type="color" id="${id}" value="${h}"></div>`; };
+const _tcol=(l,id,v)=>{ const h='#'+((v||DEFAULT_FACE_COLOR)>>>0).toString(16).padStart(6,'0'); return `<div class="prop-row"><label>${l}</label><input type="color" id="${id}" value="${h}"></div>`; };
 function _palRows(room) {
   if(!room.palette) return '';
   const sw=room.palette.map((c,i)=>{const h='#'+c.toString(16).padStart(6,'0');return `<span class="palette-swatch" style="background:${h}" data-idx="${i}"><span class="swatch-del">✕</span></span>`;}).join('');
@@ -1757,11 +1688,9 @@ function _palRows(room) {
 }
 function _bindProps(kind,data) {
   const b=(id,field,num,col)=>{ const el=document.getElementById(id); if(!el) return; el.addEventListener('change',()=>{ let v=el.value; if(col) v=parseInt(v.replace('#',''),16); else if(num) v=parseFloat(v); data[field]=v; rebuildLevel(); if(kind==='room'){_updateRoomBoundsBox(data.id);_updateHandles(data.id);} }); };
-  if(kind==='room')       { b('pr-id','id'); b('pr-xmin','xMin',true); b('pr-xmax','xMax',true); b('pr-zmin','zMin',true); b('pr-zmax','zMax',true); b('pr-elev','elevation',true); document.getElementById('pp-pal')?.querySelectorAll('.swatch-del').forEach(d=>d.addEventListener('click',e=>{e.stopPropagation();data.palette.splice(+d.parentElement.dataset.idx,1);rebuildLevel();_showProps('room',data);})); document.getElementById('pp-add')?.addEventListener('click',()=>{data.palette.push(0x808080);rebuildLevel();_showProps('room',data);}); }
-  else if(kind==='elevated') { b('pe-elev','elevation',true); b('pe-type','type'); }
+  if(kind==='room')            { b('pr-id','id'); b('pr-xmin','xMin',true); b('pr-xmax','xMax',true); b('pr-zmin','zMin',true); b('pr-zmax','zMax',true); b('pr-elev','elevation',true); document.getElementById('pp-pal')?.querySelectorAll('.swatch-del').forEach(d=>d.addEventListener('click',e=>{e.stopPropagation();data.palette.splice(+d.parentElement.dataset.idx,1);rebuildLevel();_showProps('room',data);})); document.getElementById('pp-add')?.addEventListener('click',()=>{data.palette.push(DEFAULT_FACE_COLOR);rebuildLevel();_showProps('room',data);}); }
+  else if(kind==='elevated')   { b('pe-elev','elevation',true); b('pe-type','type'); }
   else if(kind==='standalone') { b('ps-x','x',true); b('ps-z','z',true); b('ps-elev','elevation',true); b('ps-color','color',false,true); }
-  else if(kind==='decor') { b('pd-x','x',true); b('pd-y','y',true); b('pd-z','z',true); b('pd-w','w',true); b('pd-h','h',true); b('pd-d','d',true); b('pd-color','color',false,true); }
-  else if(kind==='light') { b('pl-x','x',true); b('pl-y','y',true); b('pl-z','z',true); b('pl-int','intensity',true); b('pl-dist','distance',true); b('pl-color','color',false,true); }
 }
 
 // ── Layers list ───────────────────────────────────────────────────────────────
@@ -1773,10 +1702,8 @@ function _getItemDisplay(kind, id) {
   switch(kind) {
     case 'room':       { const r=ES.rooms.find(r=>r.id===id);           return r ? {icon:'▣',name:r.id,sub:r.type} : null; }
     case 'brush':      { const b=ES.brushes.find(b=>b.id===id);         return b ? {icon:b.brushClass==='trigger'?'◈':'⬛',name:b.id,sub:b.brushClass==='trigger'?`trigger:${b.triggerType||'enter'}`:'brush'} : null; }
-    case 'elevated':   return { icon:'▲', name:`(${id})`, sub:'elev' };
+    case 'elevated':   { const et=ES.elevatedTiles.find(e=>e.id===id);   return et ? {icon:'▲',name:et.id,sub:'elev'} : null; }
     case 'standalone': { const t=ES.standaloneTiles.find(t=>t.id===id); return t ? {icon:'◻',name:t.id,sub:'tile'} : null; }
-    case 'decor':      { const d=ES.decoratives.find(d=>d.id===id);     return d ? {icon:'□',name:d.id,sub:'decor'} : null; }
-    case 'light':      { const l=ES.lights.find(l=>l.id===id);          return l ? {icon:'✦',name:l.id,sub:'light'} : null; }
     case 'entity':     { const e=ES.entities.find(e=>e.id===id);        return e ? {icon:{decor:'□',light:'✦',spawn:'⊕'}[e.entityType]||'●',name:e.id,sub:e.entityType} : null; }
     case 'nav':        { const c=ES.navMesh.find(c=>c.id===id);         return c ? {icon:'⬡',name:c.id,sub:`cost:${c.cost??1}`} : null; }
     default: return null;
@@ -1821,10 +1748,8 @@ function _refreshLayersList() {
     ...ES.rooms.map(r=>({kind:'room',id:r.id})),
     ...ES.brushes.map(b=>({kind:'brush',id:b.id})),
     ...ES.entities.map(e=>({kind:'entity',id:e.id})),
-    ...ES.elevatedTiles.map(et=>({kind:'elevated',id:`${et.x},${et.z}`})),
+    ...ES.elevatedTiles.map(et=>({kind:'elevated',id:et.id})),
     ...ES.standaloneTiles.map(st=>({kind:'standalone',id:st.id})),
-    ...ES.decoratives.map(d=>({kind:'decor',id:d.id})),
-    ...ES.lights.map(l=>({kind:'light',id:l.id})),
   ];
   allItems.filter(({kind,id})=>!groupedKeys.has(`${kind}::${id}`))
           .forEach(({kind,id})=>{ html += itemRowHTML(kind, id, false); });
@@ -2057,10 +1982,8 @@ window.addEventListener('keydown',e=>{
     ES.rooms.forEach(r=>selAdd('room',r.id));
     ES.brushes.forEach(b=>selAdd('brush',b.id));
     ES.entities.forEach(e=>selAdd('entity',e.id));
-    ES.elevatedTiles.forEach(et=>selAdd('elevated',`${et.x},${et.z}`));
+    ES.elevatedTiles.forEach(et=>selAdd('elevated',et.id));
     ES.standaloneTiles.forEach(st=>selAdd('standalone',st.id));
-    ES.decoratives.forEach(d=>selAdd('decor',d.id));
-    ES.lights.forEach(l=>selAdd('light',l.id));
     _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
     _setStatus(`${ES.selection.length} item(s) selected`);
   }
@@ -2115,8 +2038,6 @@ function _toggleLava(cx,cy) {
   rebuildLevel();
 }
 function _placeTile(x,z) { _pushUndo(); const id=_nextId('tile'); ES.standaloneTiles.push({id,x,z,elevation:0,color:0x505060}); rebuildLevel(); selSet('standalone',id); _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection(); _setStatus(`Tile at (${x},${z})`); }
-function _placeDecor(x,z) { _pushUndo(); const id=_nextId('decor'); ES.decoratives.push({id,type:'box',x,y:0.5,z,w:1,h:1,d:1,color:0x808080,castShadow:true}); rebuildLevel(); selSet('decor',id); _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection(); _setStatus(`Decor at (${x},${z})`); }
-function _placeLight(x,z) { _pushUndo(); const id=_nextId('light'); ES.lights.push({id,color:0xffffff,intensity:1.5,distance:10,x,y:2,z}); rebuildLevel(); selSet('light',id); _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection(); _setStatus(`Light at (${x},${z})`); }
 
 // ── SVG draw rect ─────────────────────────────────────────────────────────────
 const drawRect=document.getElementById('draw-rect');
@@ -2322,12 +2243,12 @@ function _showEntityProps(entity) {
 // ── Brush properties panel ────────────────────────────────────────────────────
 function _showBrushProps(brush) {
   if (!brush) { propsContent.innerHTML='<p class="hint">Data not found.</p>'; return; }
-  const _hex = c => '#'+((c||0x808080)>>>0).toString(16).padStart(6,'0');
+  const _hex = c => '#'+((c||DEFAULT_FACE_COLOR)>>>0).toString(16).padStart(6,'0');
   const isTrigger = brush.brushClass === 'trigger';
 
   let faceRows = FACE_ORDER.map(fk => {
     const f = (brush.faces||{})[fk] || {};
-    const col = _hex(f.color??0x808080);
+    const col = _hex(f.color??DEFAULT_FACE_COLOR);
     const nd  = f.nodraw ? ' checked' : '';
     const isSelFace = _selectedFace?.brushId===brush.id && _selectedFace?.faceKey===fk;
     return `<div class="face-row${isSelFace?' sel-face':''}" data-face="${fk}">
@@ -2390,7 +2311,7 @@ function _showBrushProps(brush) {
       const colEl = document.getElementById(`bp-${fk}-col`);
       const ndEl  = document.getElementById(`bp-${fk}-nd`);
       if (!brush.faces) brush.faces={};
-      if (!brush.faces[fk]) brush.faces[fk]={color:0x808080,nodraw:false};
+      if (!brush.faces[fk]) brush.faces[fk]={color:DEFAULT_FACE_COLOR,nodraw:false};
       colEl?.addEventListener('change', () => { brush.faces[fk].color = parseInt(colEl.value.replace('#',''), 16); rebuildLevel(); });
       ndEl?.addEventListener('change',  () => { brush.faces[fk].nodraw = ndEl.checked; rebuildLevel(); });
     });
@@ -2506,7 +2427,8 @@ document.getElementById('btn-new').addEventListener('click',()=>{
 });
 function _loadLevel(lvl) {
   ES.levelId=lvl.id||'level1'; ES.levelName=lvl.name||'Imported'; ES.stepHeight=lvl.stepHeight||0.3;
-  ES.playerStart=lvl.playerStart||{x:0,z:0}; ES.rooms=lvl.rooms||[]; ES.elevatedTiles=lvl.elevatedTiles||[];
+  ES.playerStart=lvl.playerStart||{x:0,z:0}; ES.rooms=lvl.rooms||[];
+  ES.elevatedTiles=(lvl.elevatedTiles||[]).map(et=>et.id ? et : {...et, id:_nextId('elev')});
   ES.decoratives=lvl.decoratives||[]; ES.lights=lvl.lights||[]; ES.portals=lvl.portals||[];
   ES.standaloneTiles=[]; ES.brushes=lvl.brushes||[]; ES.groups=lvl.groups||[];
   ES.navGroups=lvl.navGroups||[];
@@ -2519,8 +2441,8 @@ function _loadLevel(lvl) {
     cost: c.cost??1,
     ...(c.navGroupId ? {navGroupId:c.navGroupId} : {}),
   }));
-  // Migrate legacy decoratives + lights → entities on first load of old levels
-  if (!ES.entities.length && (ES.decoratives.length || ES.lights.length)) {
+  // Migrate legacy decoratives + lights → entities (always, so legacy arrays are always empty after load)
+  if (ES.decoratives.length || ES.lights.length) {
     ES.decoratives.forEach(d=>{ES.entities.push({id:d.id||_nextId('entity'),entityType:'decor',x:d.x||0,y:d.y??0.5,z:d.z||0,w:d.w||1,h:d.h||1,d:d.d||1,color:d.color||0x606060});});
     ES.lights.forEach(l=>{ES.entities.push({id:l.id||_nextId('entity'),entityType:'light',x:l.x||0,y:l.y??2,z:l.z||0,color:l.color||0xffffff,intensity:l.intensity||1.5,distance:l.distance||10});});
     ES.decoratives=[]; ES.lights=[];

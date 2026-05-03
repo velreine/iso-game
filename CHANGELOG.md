@@ -6,6 +6,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.5] - 2026-05-03
+### Changed
+- **Extracted `SELECTION_COLOR` and `DEFAULT_FACE_COLOR` constants** — replaced all inline `0xffcc00` and `0x808080` literals across `editor.js` with named constants defined at the top of the file.
+- **Removed legacy `ES.decoratives` / `ES.lights` code paths** — selection, movement, duplication, deletion, layers list, property panels, and Ctrl+A no longer handle the old `'decor'` / `'light'` selection kinds. The migration in `_loadLevel` now always runs (not just when `entities` is empty), guaranteeing the legacy arrays are cleared on every load. The dead `_placeDecor` and `_placeLight` functions are removed.
+- **Removed elevated tile composite string IDs** — elevated tiles now carry a proper `id` field (assigned on load for legacy data). All uses of the `"${x},${z}"` pattern in selection, deletion, marquee, layers list, and Ctrl+A are replaced with direct ID lookup.
+- **Split `_showBatchProps` into three functions** — `_buildBatchHTML(kinds, items, n)` builds the HTML string, `_bindBatchHandlers(kinds, items)` wires up all event listeners, and `_showBatchProps` is now a thin orchestrator that calls both.
+
 ## [1.6.4] - 2026-05-03
 ### Added
 - **Per-viewport "Show Brush Edges" toggle** — right-click any viewport to show or hide the `brushEdgeGroup` edge outlines drawn over solid brushes. Defaults to **on** in the three ortho views (Top, Front, Side) and **off** in the 3D perspective view. The toggle is stored in `_vpSnap[vp].showBrushEdges` and applied per-frame in `_renderVP` by setting `brushEdgeGroup.visible` immediately before `renderer.render(helperScene, cam)` and restoring it to `true` afterward so other systems are unaffected.
