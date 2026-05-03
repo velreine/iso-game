@@ -28,6 +28,7 @@ A step-by-step record of every feature added to the game, with the most importan
 23. [Stage 23 — editor.js Refactor: Constants, Legacy Removal, Split Batch Props (v1.6.5)](#stage-23)
 24. [Stage 24 — editor.js Refactor: Entity Lookup, Prop-Row Unification, Color Helper, Binding Helpers (v1.6.6)](#stage-24)
 25. [Stage 25 — editor.js Refactor: Precision Helper, Shared-Value Helper, Extract Resize Drag (v1.6.7)](#stage-25)
+26. [Stage 26 — editor.js Refactor: Rename Abbreviations to Full Names (v1.6.8)](#stage-26)
 
 ---
 
@@ -1817,4 +1818,104 @@ if (_dragHandle && mouseButtons.left) { _handleResizeDrag(cx, cy, vp); return; }
 ```
 
 The function shrinks from ~136 to ~85 lines, and the resize logic is independently readable.
+
+---
+
+## Stage 26 — editor.js Refactor: Rename Abbreviations to Full Names (v1.6.8) {#stage-26}
+
+**Goal:** Replace all abbreviated identifiers in named functions and event handlers with self-documenting names. Anonymous arrow-function parameters (`l`, `v`, `opts`, `o`, `i`, etc.) are left short per project convention.
+
+### Module-level variables
+
+| Old name | New name |
+|---|---|
+| `activeVP` | `activeViewport` |
+| `_lastHoverVP` | `_lastHoverViewport` |
+| `_ctxVP` | `_ctxViewport` |
+
+### Coordinate and viewport utilities
+
+- `snapGrid(coord, vp)` → `snapGrid(coord, viewport)`
+- `getViewportRect(vp)` → `getViewportRect(viewport)`
+- `getViewportAt(cx, cy)` → `getViewportAt(mouseX, mouseY)`
+- `toClip(vp, cx, cy)` → `toClip(viewport, mouseX, mouseY)`
+- `topToWorld` / `frontToWorld` / `sideToWorld` → `(mouseX, mouseY)` params
+- `_worldYFromView(cx, cy, vp)` → `_worldYFromView(mouseX, mouseY, viewport)`
+- `worldToCSS(wx, wy, wz, vp)` → `worldToCSS(worldX, worldY, worldZ, viewport)`; inner `v` (projected Vector3) → `projected`
+
+### Event handlers
+
+- `contextmenu`: `vp` → `viewport`
+- `mousedown`: `cx`/`cy` → `mouseX`/`mouseY`
+- `mousemove`: `cx`/`cy` → `mouseX`/`mouseY`, `dx`/`dy` → `deltaX`/`deltaY`, `mx`/`my` → `movementX`/`movementY`
+- `wheel`: `vp` → `viewport`
+- `keydown`: `vp` → `viewport`
+
+### Named function parameter renames
+
+| Function | Old params | New params |
+|---|---|---|
+| `_renderVP` | `name, cam` | `viewportName, camera` |
+| `_showCtxMenu` | `vp, sx, sy` | `viewport, screenX, screenY` |
+| `_setVPHighlight` | `vp` (inner `n`) | `viewport` (inner `name`) |
+| `_onLeftDown` | `cx, cy, ctrl` | `mouseX, mouseY, ctrl` |
+| `_handleResizeDrag` | `cx, cy, vp` | `mouseX, mouseY, viewport` |
+| `_onMouseMove` | `cx, cy, dx, dy` | `mouseX, mouseY, deltaX, deltaY` |
+| `_startMoveDrag` | `wp, vp` | `worldPos, viewport` |
+| `_finishMarquee` | `s, e, vp, add` | `cssStart, cssEnd, viewport, additive` |
+| `_showDrawRect` | `v` | `visible` |
+| `_bindNumField` | `…, int` | `…, asInteger` |
+| `_floorTile` | inner `ud` | `userData` |
+
+### Local variable renames inside function bodies
+
+- `ht` → `handleType` (in drag/move handlers)
+- `ud` → `userData` (in raycast handlers and `_onLeftDown`)
+- `wp` → `worldPos` (in drag and toggle functions)
+- `ps` → `panScale` (in `_onMouseMove`)
+- `hoverVP` → `hoverViewport`, `dvp` → `dragViewport` (in `_onMouseMove`)
+- `elev` → `elevation`, `ht` → `boundsHeight` (in `_updateRoomBoundsBox`)
+- `cx`/`cy` → `clampedX`/`clampedY` (in `_updateAxisLabels3D`)
+- `o` → `obj` (in `_handleResizeDrag`)
+- `sx`/`sz`/`sy` → `snappedX`/`snappedZ`/`snappedY` (in `_handleResizeDrag`)
+
+### Example: `_renderVP` before and after
+
+```js
+// Before
+function _renderVP(name, cam, isLive) {
+  const r = getViewportRect(name);
+  renderer.render(scene, cam);
+  const _axesToHide = _vpHideAxes[name] || [];
+  const _gridVis = name === 'persp' ? [...] : ({...}[name] || [...]);
+  const _gdt = _vpSnap[name]?.gridDepthTest ?? false;
+  renderer.render(helperScene, cam);
+}
+
+// After
+function _renderVP(viewportName, camera, isLive) {
+  const r = getViewportRect(viewportName);
+  renderer.render(scene, camera);
+  const _axesToHide = _vpHideAxes[viewportName] || [];
+  const _gridVis = viewportName === 'persp' ? [...] : ({...}[viewportName] || [...]);
+  const _gdt = _vpSnap[viewportName]?.gridDepthTest ?? false;
+  renderer.render(helperScene, camera);
+}
+```
+
+### Example: `_updateAxisLabels3D` clamp variables
+
+```js
+// Before
+const cx = Math.max(xMin, Math.min(xMax, cssX));
+const cy = Math.max(yMin, Math.min(yMax, cssY));
+_ax3d[key].style.left = cx + 'px';
+_ax3d[key].style.top  = cy + 'px';
+
+// After
+const clampedX = Math.max(xMin, Math.min(xMax, cssX));
+const clampedY = Math.max(yMin, Math.min(yMax, cssY));
+_ax3d[key].style.left = clampedX + 'px';
+_ax3d[key].style.top  = clampedY + 'px';
+```
 

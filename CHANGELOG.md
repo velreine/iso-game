@@ -6,6 +6,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.8] - 2026-05-03
+### Changed
+- **Renamed abbreviated identifiers to full names throughout `editor.js`** — all named function parameters, module-level variables, and local variables in event handlers and named functions now use self-documenting names. Key renames: `cx`/`cy` → `mouseX`/`mouseY` (event handlers), `vp` → `viewport`, `ht` → `handleType`, `ud` → `userData`, `wp` → `worldPos`, `dx`/`dy` → `deltaX`/`deltaY`, `ps` → `panScale`, `activeVP` → `activeViewport`, `_lastHoverVP` → `_lastHoverViewport`, `_ctxVP` → `_ctxViewport`, `name`/`cam` → `viewportName`/`camera` in `_renderVP`, `cx`/`cy` → `clampedX`/`clampedY` in `_updateAxisLabels3D`, `elev` → `elevation`, `ht` → `boundsHeight` in `_updateRoomBoundsBox`, `v` → `projected` in `worldToCSS`, `int` → `asInteger` in `_bindNumField`. Anonymous arrow-function parameters are left abbreviated per convention.
+
 ## [1.6.7] - 2026-05-03
 ### Changed
 - **Added `_f2(v)` precision helper** — replaces 8 instances of `parseFloat(v.toFixed(2))` in resize drag, move drag, and `_applyMoveDelta`. Defined as a module-level constant alongside `_colorToHex`.

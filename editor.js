@@ -6,7 +6,7 @@ const TILE_SIZE          = 1.0;
 const SELECTION_COLOR    = 0xffcc00;  // selection highlight / handle corners
 const DEFAULT_FACE_COLOR = 0x808080;  // default brush face / entity colour
 const _colorToHex = (c, fallback=DEFAULT_FACE_COLOR) => '#' + ((c||fallback)>>>0).toString(16).padStart(6,'0');
-const _f2 = v => parseFloat(v.toFixed(2));  // snap float to 2 decimal places
+const _round2dp = v => parseFloat(v.toFixed(2));  // snap float to 2 decimal places
 // Per-viewport snap settings (tile = cell centres, intersection = grid line crossings).
 const _vpSnap = {
   top:   { tile: true, intersection: false, gridDepthTest: false, showBrushEdges: true  },
@@ -20,12 +20,12 @@ const _vpSnap = {
 // intersection only→ grid crossings (0, 1, 2 …)
 // both             → 0.5-unit steps  (0, 0.5, 1, 1.5 …)
 // neither          → free (no snap)
-function snapGrid(v, vp = 'top') {
-  const s = _vpSnap[vp] || _vpSnap.top;
-  if (s.tile && s.intersection) return Math.round(v * 2) / 2;
-  if (s.tile)                   return (Math.round(v / TILE_SIZE - 0.5) + 0.5) * TILE_SIZE;
-  if (s.intersection)           return Math.round(v / TILE_SIZE) * TILE_SIZE;
-  return v;
+function snapGrid(coord, viewport = 'top') {
+  const s = _vpSnap[viewport] || _vpSnap.top;
+  if (s.tile && s.intersection) return Math.round(coord * 2) / 2;
+  if (s.tile)                   return (Math.round(coord / TILE_SIZE - 0.5) + 0.5) * TILE_SIZE;
+  if (s.intersection)           return Math.round(coord / TILE_SIZE) * TILE_SIZE;
+  return coord;
 }
 const TILE_THICKNESS = 0.22;
 const TILE_GAP       = 0.06;
@@ -85,9 +85,9 @@ function _getEntityByKind(kind, id) {
   if (kind==='nav')        return ES.navMesh.find(c=>c.id===id)||null;
   return null;
 }
-function _bindNumField(id, obj, field, afterChange=null, int=false) {
+function _bindNumField(id, obj, field, afterChange=null, asInteger=false) {
   const el=document.getElementById(id); if(!el) return;
-  el.addEventListener('change', () => { obj[field]=int?parseInt(el.value):parseFloat(el.value); afterChange?.(); });
+  el.addEventListener('change', () => { obj[field]=asInteger?parseInt(el.value):parseFloat(el.value); afterChange?.(); });
 }
 function _bindColorField(id, obj, field, afterChange=null) {
   const el=document.getElementById(id); if(!el) return;
@@ -261,55 +261,55 @@ _applyPerspCam(); _applyTopCam(); _applyFrontCam(); _applySideCam();
 
 // ── Viewport geometry ─────────────────────────────────────────────────────────
 // Layout:  TL=side  TR=top  /  BL=persp  BR=front
-function getViewportRect(vp) {
+function getViewportRect(viewport) {
   const W=canvas.clientWidth, H=canvas.clientHeight, hw=W/2, hh=H/2;
-  return { persp:{x:0,y:hh,w:hw,h:hh}, top:{x:hw,y:0,w:hw,h:hh}, front:{x:hw,y:hh,w:hw,h:hh}, side:{x:0,y:0,w:hw,h:hh} }[vp];
+  return { persp:{x:0,y:hh,w:hw,h:hh}, top:{x:hw,y:0,w:hw,h:hh}, front:{x:hw,y:hh,w:hw,h:hh}, side:{x:0,y:0,w:hw,h:hh} }[viewport];
 }
 const _camFor = vp => ({ persp:perspCam, top:topCam, front:frontCam, side:sideCam }[vp]);
-function getViewportAt(cx, cy) {
+function getViewportAt(mouseX, mouseY) {
   const W=canvas.clientWidth, H=canvas.clientHeight;
-  if (cx<W/2&&cy>=H/2) return 'persp';
-  if (cx>=W/2&&cy<H/2)  return 'top';
-  if (cx>=W/2&&cy>=H/2) return 'front';
+  if (mouseX<W/2&&mouseY>=H/2) return 'persp';
+  if (mouseX>=W/2&&mouseY<H/2)  return 'top';
+  if (mouseX>=W/2&&mouseY>=H/2) return 'front';
   return 'side';
 }
-function toClip(vp, cx, cy) {
-  const r=getViewportRect(vp);
-  return { x:((cx-r.x)/r.w)*2-1, y:-((cy-r.y)/r.h)*2+1 };
+function toClip(viewport, mouseX, mouseY) {
+  const r=getViewportRect(viewport);
+  return { x:((mouseX-r.x)/r.w)*2-1, y:-((mouseY-r.y)/r.h)*2+1 };
 }
 // World XZ from top-view click (y=0 plane)
-function topToWorld(cx, cy) {
+function topToWorld(mouseX, mouseY) {
   const ray=new THREE.Raycaster();
-  ray.setFromCamera(toClip('top',cx,cy), topCam);
+  ray.setFromCamera(toClip('top',mouseX,mouseY), topCam);
   const pt=new THREE.Vector3();
   return ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),pt) ? {x:pt.x,z:pt.z} : null;
 }
 // World XY from front-view click
-function frontToWorld(cx, cy) {
+function frontToWorld(mouseX, mouseY) {
   const r=getViewportRect('front');
   const asp=canvas.clientWidth/canvas.clientHeight;
-  const clipX=((cx-r.x)/r.w)*2-1, clipY=-((cy-r.y)/r.h)*2+1;
+  const clipX=((mouseX-r.x)/r.w)*2-1, clipY=-((mouseY-r.y)/r.h)*2+1;
   return { x: frontPanX + clipX*orthoZoom*asp, y: frontPanY + clipY*orthoZoom };
 }
 // World ZY from side-view click (side cam looks from -X; screen-right = world +Z)
-function sideToWorld(cx, cy) {
+function sideToWorld(mouseX, mouseY) {
   const r=getViewportRect('side');
   const asp=canvas.clientWidth/canvas.clientHeight;
-  const clipX=((cx-r.x)/r.w)*2-1, clipY=-((cy-r.y)/r.h)*2+1;
+  const clipX=((mouseX-r.x)/r.w)*2-1, clipY=-((mouseY-r.y)/r.h)*2+1;
   return { z: sidePanZ + clipX*orthoZoom*asp, y: sidePanY + clipY*orthoZoom };
 }
 // World Y from mouse position in front or side view (ortho, Y is vertical axis)
-function _worldYFromView(cx, cy, vp) {
-  if (vp!=='front'&&vp!=='side') return null;
-  const clip=toClip(vp,cx,cy);
-  return (vp==='front'?frontPanY:sidePanY)+clip.y*orthoZoom;
+function _worldYFromView(mouseX, mouseY, viewport) {
+  if (viewport!=='front'&&viewport!=='side') return null;
+  const clip=toClip(viewport,mouseX,mouseY);
+  return (viewport==='front'?frontPanY:sidePanY)+clip.y*orthoZoom;
 }
 
 // Project world pos → CSS coords in a given viewport
-function worldToCSS(wx, wy, wz, vp) {
-  const v=new THREE.Vector3(wx,wy,wz).project(_camFor(vp));
-  const r=getViewportRect(vp);
-  return { x:r.x+(v.x+1)/2*r.w, y:r.y+(1-v.y)/2*r.h };
+function worldToCSS(worldX, worldY, worldZ, viewport) {
+  const projected=new THREE.Vector3(worldX,worldY,worldZ).project(_camFor(viewport));
+  const r=getViewportRect(viewport);
+  return { x:r.x+(projected.x+1)/2*r.w, y:r.y+(1-projected.y)/2*r.h };
 }
 
 // ── Tile map ──────────────────────────────────────────────────────────────────
@@ -375,13 +375,13 @@ function rebuildLevel() {
 const _mat  = c => new THREE.MeshLambertMaterial({ color: c });
 const _rand = a => a[Math.floor(Math.random()*a.length)];
 
-function _floorTile(x, z, elev, color, roomId, arr) {
+function _floorTile(x, z, elevation, color, roomId, targetArray) {
   const mesh=new THREE.Mesh(new THREE.BoxGeometry(TILE_SIZE-TILE_GAP,TILE_THICKNESS,TILE_SIZE-TILE_GAP), _mat(color));
-  mesh.position.set(x, elev-TILE_THICKNESS/2, z);
+  mesh.position.set(x, elevation-TILE_THICKNESS/2, z);
   mesh.receiveShadow=true;
-  mesh.userData={kind:'tile', roomId, x, z, elevation:elev};
-  levelGroup.add(mesh); (arr||tileMeshes).push(mesh);
-  tmSet(x,z,{kind:'tile',roomId,elevation:elev,walkable:true});
+  mesh.userData={kind:'tile', roomId, x, z, elevation};
+  levelGroup.add(mesh); (targetArray||tileMeshes).push(mesh);
+  tmSet(x,z,{kind:'tile',roomId,elevation,walkable:true});
 }
 
 function _buildRoom(room) {
@@ -687,9 +687,9 @@ function _updateRoomBoundsBox(roomId) {
   const room=ES.rooms.find(r=>r.id===roomId);
   if (!room) { roomBoundsBox.visible=false; return; }
   const x0=room.xMin-0.5,x1=room.xMax+0.5,z0=room.zMin-0.5,z1=room.zMax+0.5;
-  const elev=room.elevation||0, ht=WALL_HEIGHT+elev+0.05;
-  roomBoundsBox.position.set((x0+x1)/2,ht/2,(z0+z1)/2);
-  roomBoundsBox.scale.set(x1-x0,ht,z1-z0);
+  const elevation=room.elevation||0, boundsHeight=WALL_HEIGHT+elevation+0.05;
+  roomBoundsBox.position.set((x0+x1)/2,boundsHeight/2,(z0+z1)/2);
+  roomBoundsBox.scale.set(x1-x0,boundsHeight,z1-z0);
   roomBoundsBox.visible=true;
 }
 function _updateHandles(id, kind) {
@@ -760,10 +760,10 @@ const _vpHandleAxes = {
   front: ['xMin','xMax','yMin','yMax','xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'],
   side:  ['zMin','zMax','yMin','yMax','zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'],
 };
-function _raycastHandles(cx, cy, vp) {
+function _raycastHandles(mouseX, mouseY, viewport) {
   if (!handlesGroup.visible) return null;
-  raycaster.setFromCamera(toClip(vp,cx,cy), _camFor(vp));
-  const allowed = _vpHandleAxes[vp];
+  raycaster.setFromCamera(toClip(viewport,mouseX,mouseY), _camFor(viewport));
+  const allowed = _vpHandleAxes[viewport];
   const targets = Object.entries(handleMeshes)
     .filter(([ax, m]) => m.visible && (!allowed || allowed.includes(ax)))
     .map(([, m]) => m);
@@ -772,22 +772,22 @@ function _raycastHandles(cx, cy, vp) {
 }
 
 // Returns userData of first hit; for brushes also includes materialIndex for face ID
-function _raycastLevel(cx, cy, vp) {
-  raycaster.setFromCamera(toClip(vp,cx,cy), _camFor(vp));
+function _raycastLevel(mouseX, mouseY, viewport) {
+  raycaster.setFromCamera(toClip(viewport,mouseX,mouseY), _camFor(viewport));
   const selectableEnts = entityMeshes.filter(m => m.userData.kind === 'entity');
   const hits=raycaster.intersectObjects([...tileMeshes,...decorMeshes,...lightMeshes,...brushMeshes,...selectableEnts,...navHitboxGroup.children]);
   if (!hits.length) return null;
   const hit=hits[0];
-  const ud={...hit.object.userData};
-  if (ud.kind==='brush' && hit.face!=null) ud.materialIndex=hit.face.materialIndex;
-  return ud;
+  const userData={...hit.object.userData};
+  if (userData.kind==='brush' && hit.face!=null) userData.materialIndex=hit.face.materialIndex;
+  return userData;
 }
 
 // ── Drag-state ────────────────────────────────────────────────────────────────
 let mouseButtons = { left:false, right:false, middle:false };
 let lastMouse    = { x:0, y:0 };
-let activeVP     = null;
-let _lastHoverVP = 'top';  // last viewport the mouse was over — drives arrow keys
+let activeViewport     = null;
+let _lastHoverViewport = 'top';  // last viewport the mouse was over — drives arrow keys
 
 // Cache outline divs once DOM is ready
 const _vpOutlines = {};
@@ -795,11 +795,11 @@ const _vpOutlines = {};
   _vpOutlines[n] = document.getElementById('vp-outline-' + n);
 });
 
-function _setVPHighlight(vp) {
-  if (_lastHoverVP === vp) return;
-  _lastHoverVP = vp;
-  Object.entries(_vpOutlines).forEach(([n, el]) => {
-    if (el) el.classList.toggle('active', n === vp);
+function _setVPHighlight(viewport) {
+  if (_lastHoverViewport === viewport) return;
+  _lastHoverViewport = viewport;
+  Object.entries(_vpOutlines).forEach(([name, el]) => {
+    if (el) el.classList.toggle('active', name === viewport);
   });
 }
 
@@ -833,20 +833,20 @@ const _ctxGridXZ      = document.getElementById('ctx-grid-xz');
 const _ctxGridXY      = document.getElementById('ctx-grid-xy');
 const _ctxGridZY      = document.getElementById('ctx-grid-zy');
 const _vpLabels = { top:'Top (XZ)', front:'Front (XY)', side:'Side (ZY)', persp:'3D' };
-let _ctxVP = null;
+let _ctxViewport = null;
 
 // Which grids are visible in the 3D (persp) view
 const _perspGridVis = { xz: true, xy: true, zy: true };
 
-function _showCtxMenu(vp, screenX, screenY) {
-  _ctxVP = vp;
-  _ctxTitle.textContent = (_vpLabels[vp] || vp) + ' Options';
-  _ctxSnapT.checked       = _vpSnap[vp].tile;
-  _ctxSnapI.checked       = _vpSnap[vp].intersection;
-  _ctxGridDepth.checked   = _vpSnap[vp].gridDepthTest;
-  _ctxBrushEdges.checked  = _vpSnap[vp].showBrushEdges;
+function _showCtxMenu(viewport, screenX, screenY) {
+  _ctxViewport = viewport;
+  _ctxTitle.textContent = (_vpLabels[viewport] || viewport) + ' Options';
+  _ctxSnapT.checked       = _vpSnap[viewport].tile;
+  _ctxSnapI.checked       = _vpSnap[viewport].intersection;
+  _ctxGridDepth.checked   = _vpSnap[viewport].gridDepthTest;
+  _ctxBrushEdges.checked  = _vpSnap[viewport].showBrushEdges;
   // Show grid toggles only for the 3D view
-  if (vp === 'persp') {
+  if (viewport === 'persp') {
     _ctxGridXZ.checked = _perspGridVis.xz;
     _ctxGridXY.checked = _perspGridVis.xy;
     _ctxGridZY.checked = _perspGridVis.zy;
@@ -860,12 +860,12 @@ function _showCtxMenu(vp, screenX, screenY) {
   _ctxMenu.style.left = Math.min(screenX, window.innerWidth  - mw - 4) + 'px';
   _ctxMenu.style.top  = Math.min(screenY, window.innerHeight - mh - 4) + 'px';
 }
-function _hideCtxMenu() { _ctxMenu.classList.add('hidden'); _ctxVP = null; }
+function _hideCtxMenu() { _ctxMenu.classList.add('hidden'); _ctxViewport = null; }
 
-_ctxSnapT.addEventListener('change',      () => { if (_ctxVP) _vpSnap[_ctxVP].tile           = _ctxSnapT.checked; });
-_ctxSnapI.addEventListener('change',      () => { if (_ctxVP) _vpSnap[_ctxVP].intersection   = _ctxSnapI.checked; });
-_ctxGridDepth.addEventListener('change',  () => { if (_ctxVP) _vpSnap[_ctxVP].gridDepthTest  = _ctxGridDepth.checked; });
-_ctxBrushEdges.addEventListener('change', () => { if (_ctxVP) _vpSnap[_ctxVP].showBrushEdges = _ctxBrushEdges.checked; });
+_ctxSnapT.addEventListener('change',      () => { if (_ctxViewport) _vpSnap[_ctxViewport].tile           = _ctxSnapT.checked; });
+_ctxSnapI.addEventListener('change',      () => { if (_ctxViewport) _vpSnap[_ctxViewport].intersection   = _ctxSnapI.checked; });
+_ctxGridDepth.addEventListener('change',  () => { if (_ctxViewport) _vpSnap[_ctxViewport].gridDepthTest  = _ctxGridDepth.checked; });
+_ctxBrushEdges.addEventListener('change', () => { if (_ctxViewport) _vpSnap[_ctxViewport].showBrushEdges = _ctxBrushEdges.checked; });
 _ctxGridXZ.addEventListener('change', () => { _perspGridVis.xz = _ctxGridXZ.checked; });
 _ctxGridXY.addEventListener('change', () => { _perspGridVis.xy = _ctxGridXY.checked; });
 _ctxGridZY.addEventListener('change', () => { _perspGridVis.zy = _ctxGridZY.checked; });
@@ -876,16 +876,16 @@ document.addEventListener('keydown',   e => { if (e.key === 'Escape') _hideCtxMe
 canvas.addEventListener('contextmenu', e => {
   e.preventDefault();
   if (_dragDistance > DRAG_THRESHOLD) return; // was a drag, not a click
-  const vp = getViewportAt(e.offsetX, e.offsetY);
-  if (vp) _showCtxMenu(vp, e.clientX, e.clientY);
+  const viewport = getViewportAt(e.offsetX, e.offsetY);
+  if (viewport) _showCtxMenu(viewport, e.clientX, e.clientY);
 });
 
 canvas.addEventListener('mousedown', e => {
-  const cx=e.offsetX, cy=e.offsetY;
-  activeVP=getViewportAt(cx,cy);
-  lastMouse={x:cx,y:cy};
+  const mouseX=e.offsetX, mouseY=e.offsetY;
+  activeViewport=getViewportAt(mouseX,mouseY);
+  lastMouse={x:mouseX,y:mouseY};
   _dragDistance=0;
-  if (e.button===0) { mouseButtons.left=true;  _onLeftDown(cx,cy,e.ctrlKey||e.metaKey); }
+  if (e.button===0) { mouseButtons.left=true;  _onLeftDown(mouseX,mouseY,e.ctrlKey||e.metaKey); }
   if (e.button===1) { mouseButtons.middle=true; e.preventDefault(); }
   if (e.button===2)   mouseButtons.right=true;
 });
@@ -899,18 +899,18 @@ window.addEventListener('mouseup', e => {
 window.addEventListener('mousemove', e => {
   if (_flyMode) {
     // Pointer locked — raw deltas drive look, cursor is hidden
-    const mx=e.movementX||0, my=e.movementY||0;
-    perspYaw  -=mx*0.002;
-    perspPitch=Math.max(-1.4,Math.min(1.4,perspPitch-my*0.002));
+    const movementX=e.movementX||0, movementY=e.movementY||0;
+    perspYaw  -=movementX*0.002;
+    perspPitch=Math.max(-1.4,Math.min(1.4,perspPitch-movementY*0.002));
     _applyPerspCam();
     return;
   }
   const rect=canvas.getBoundingClientRect();
-  const cx=e.clientX-rect.left, cy=e.clientY-rect.top;
-  const dx=cx-lastMouse.x, dy=cy-lastMouse.y;
-  _dragDistance+=Math.abs(dx)+Math.abs(dy);
-  lastMouse={x:cx,y:cy};
-  _onMouseMove(cx,cy,dx,dy);
+  const mouseX=e.clientX-rect.left, mouseY=e.clientY-rect.top;
+  const deltaX=mouseX-lastMouse.x, deltaY=mouseY-lastMouse.y;
+  _dragDistance+=Math.abs(deltaX)+Math.abs(deltaY);
+  lastMouse={x:mouseX,y:mouseY};
+  _onMouseMove(mouseX,mouseY,deltaX,deltaY);
 });
 
 window.addEventListener('mouseleave', () => {
@@ -919,33 +919,33 @@ window.addEventListener('mouseleave', () => {
 
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
-  const vp=getViewportAt(e.offsetX,e.offsetY);
-  if (vp==='persp') {
+  const viewport=getViewportAt(e.offsetX,e.offsetY);
+  if (viewport==='persp') {
     const dir=new THREE.Vector3(Math.cos(perspPitch)*Math.sin(perspYaw),Math.sin(perspPitch),Math.cos(perspPitch)*Math.cos(perspYaw));
     perspPos.addScaledVector(dir,-e.deltaY*0.05); _applyPerspCam();
   } else setOrthoZoom(orthoZoom+e.deltaY*0.05);
 }, {passive:false});
 
 // ── Left-down ─────────────────────────────────────────────────────────────────
-function _onLeftDown(cx, cy, ctrl) {
-  const vp=activeVP;
+function _onLeftDown(mouseX, mouseY, ctrl) {
+  const viewport=activeViewport;
 
   // ── SELECT tool ──
   if (ES.tool==='select') {
     // 1. Resize handle?
-    const ht=_raycastHandles(cx,cy,vp);
-    if (ht) {
+    const handleType=_raycastHandles(mouseX,mouseY,viewport);
+    if (handleType) {
       const roomSel=ES.selection.find(s=>s.kind==='room');
-      if (roomSel) { _dragHandle={type:ht,kind:'room',obj:ES.rooms.find(r=>r.id===roomSel.id)}; return; }
+      if (roomSel) { _dragHandle={type:handleType,kind:'room',obj:ES.rooms.find(r=>r.id===roomSel.id)}; return; }
       const brushSel=ES.selection.find(s=>s.kind==='brush');
-      if (brushSel) { _dragHandle={type:ht,kind:'brush',obj:ES.brushes.find(b=>b.id===brushSel.id)}; return; }
+      if (brushSel) { _dragHandle={type:handleType,kind:'brush',obj:ES.brushes.find(b=>b.id===brushSel.id)}; return; }
     }
 
     // 2. Hit any object?
-    const ud=_raycastLevel(cx,cy,vp);
-    if (ud) {
-      const { kind, id: rawId, roomId, x, z, materialIndex } = ud;
-      let kind2 = (kind==='tile'||kind==='wall') ? (roomId ? 'room' : (ud.kind==='standalone' ? 'standalone' : null)) : kind;
+    const userData=_raycastLevel(mouseX,mouseY,viewport);
+    if (userData) {
+      const { kind, id: rawId, roomId, x, z, materialIndex } = userData;
+      let kind2 = (kind==='tile'||kind==='wall') ? (roomId ? 'room' : (userData.kind==='standalone' ? 'standalone' : null)) : kind;
       const id2   = kind2==='room' ? roomId : rawId;
       if (!kind2) return;
 
@@ -965,16 +965,16 @@ function _onLeftDown(cx, cy, ctrl) {
       _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
 
       // Start move drag (works from all ortho views)
-      if (vp==='top')   { const wp=topToWorld(cx,cy);   if(wp) _startMoveDrag({x:wp.x,y:0,z:wp.z}, vp); }
-      if (vp==='front') { const wp=frontToWorld(cx,cy); if(wp) _startMoveDrag({x:wp.x,y:wp.y,z:0}, vp); }
-      if (vp==='side')  { const wp=sideToWorld(cx,cy);  if(wp) _startMoveDrag({x:0,y:wp.y,z:wp.z}, vp); }
+      if (viewport==='top')   { const worldPos=topToWorld(mouseX,mouseY);   if(worldPos) _startMoveDrag({x:worldPos.x,y:0,z:worldPos.z}, viewport); }
+      if (viewport==='front') { const worldPos=frontToWorld(mouseX,mouseY); if(worldPos) _startMoveDrag({x:worldPos.x,y:worldPos.y,z:0}, viewport); }
+      if (viewport==='side')  { const worldPos=sideToWorld(mouseX,mouseY);  if(worldPos) _startMoveDrag({x:0,y:worldPos.y,z:worldPos.z}, viewport); }
       return;
     }
 
     // 3. Empty space → marquee (or deselect on click)
-    if (!ctrl && vp!=='persp') {
-      const wp=topToWorld(cx,cy);
-      _dragMarquee={ startCSS:{x:cx,y:cy}, vpName:vp, startWorld:wp };
+    if (!ctrl && viewport!=='persp') {
+      const worldPos=topToWorld(mouseX,mouseY);
+      _dragMarquee={ startCSS:{x:mouseX,y:mouseY}, vpName:viewport, startWorld:worldPos };
     } else if (!ctrl) {
       selClear(); _refreshSelBoxes(); _refreshLayersList(); _showPropsForSelection();
     }
@@ -982,22 +982,22 @@ function _onLeftDown(cx, cy, ctrl) {
   }
 
   // ── Other tools ──
-  if ((ES.tool==='room'||ES.tool==='brush') && vp==='top') {
-    const wp=topToWorld(cx,cy);
-    if (wp) {
-      ES.drawing=true; ES.drawStart=ES.drawEnd={x:snapGrid(wp.x),z:snapGrid(wp.z)};
+  if ((ES.tool==='room'||ES.tool==='brush') && viewport==='top') {
+    const worldPos=topToWorld(mouseX,mouseY);
+    if (worldPos) {
+      ES.drawing=true; ES.drawStart=ES.drawEnd={x:snapGrid(worldPos.x),z:snapGrid(worldPos.z)};
       _showDrawRect(true); _updateDrawRect(); _updatePreviewBox();
     }
     return;
   }
-  if (ES.tool==='entity' && vp==='top') {
-    const wp=topToWorld(cx,cy);
-    if(wp) _openEntityDialog(Math.round(wp.x), Math.round(wp.z));
+  if (ES.tool==='entity' && viewport==='top') {
+    const worldPos=topToWorld(mouseX,mouseY);
+    if(worldPos) _openEntityDialog(Math.round(worldPos.x), Math.round(worldPos.z));
     return;
   }
-  if (ES.tool==='nav' && vp==='top') {
-    const wp=topToWorld(cx,cy); if(!wp) return;
-    const tx=Math.round(wp.x), tz=Math.round(wp.z);
+  if (ES.tool==='nav' && viewport==='top') {
+    const worldPos=topToWorld(mouseX,mouseY); if(!worldPos) return;
+    const tx=Math.round(worldPos.x), tz=Math.round(worldPos.z);
     const idx=ES.navMesh.findIndex(c=>c.x===tx&&c.z===tz);
     if (ctrl || idx>=0) {
       // ctrl+click or click on existing cell → remove
@@ -1055,126 +1055,126 @@ function _onLeftUp(ctrl) {
 }
 
 // ── Mouse move ────────────────────────────────────────────────────────────────
-function _handleResizeDrag(cx, cy, vp) {
-  const o=_dragHandle.obj, ht=_dragHandle.type;
-  if (['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'].includes(ht)) {
-    const wp=topToWorld(cx,cy); if (!wp) return;
-    const sx=snapGrid(wp.x,'top'), sz=snapGrid(wp.z,'top');
-    switch (ht) {
-      case 'xMin':     o.xMin=Math.min(sx,o.xMax-1); break;
-      case 'xMax':     o.xMax=Math.max(sx,o.xMin+1); break;
-      case 'zMin':     o.zMin=Math.min(sz,o.zMax-1); break;
-      case 'zMax':     o.zMax=Math.max(sz,o.zMin+1); break;
-      case 'xMinzMin': o.xMin=Math.min(sx,o.xMax-1); o.zMin=Math.min(sz,o.zMax-1); break;
-      case 'xMinzMax': o.xMin=Math.min(sx,o.xMax-1); o.zMax=Math.max(sz,o.zMin+1); break;
-      case 'xMaxzMin': o.xMax=Math.max(sx,o.xMin+1); o.zMin=Math.min(sz,o.zMax-1); break;
-      case 'xMaxzMax': o.xMax=Math.max(sx,o.xMin+1); o.zMax=Math.max(sz,o.zMin+1); break;
+function _handleResizeDrag(mouseX, mouseY, viewport) {
+  const obj=_dragHandle.obj, handleType=_dragHandle.type;
+  if (['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'].includes(handleType)) {
+    const worldPos=topToWorld(mouseX,mouseY); if (!worldPos) return;
+    const snappedX=snapGrid(worldPos.x,'top'), snappedZ=snapGrid(worldPos.z,'top');
+    switch (handleType) {
+      case 'xMin':     obj.xMin=Math.min(snappedX,obj.xMax-1); break;
+      case 'xMax':     obj.xMax=Math.max(snappedX,obj.xMin+1); break;
+      case 'zMin':     obj.zMin=Math.min(snappedZ,obj.zMax-1); break;
+      case 'zMax':     obj.zMax=Math.max(snappedZ,obj.zMin+1); break;
+      case 'xMinzMin': obj.xMin=Math.min(snappedX,obj.xMax-1); obj.zMin=Math.min(snappedZ,obj.zMax-1); break;
+      case 'xMinzMax': obj.xMin=Math.min(snappedX,obj.xMax-1); obj.zMax=Math.max(snappedZ,obj.zMin+1); break;
+      case 'xMaxzMin': obj.xMax=Math.max(snappedX,obj.xMin+1); obj.zMin=Math.min(snappedZ,obj.zMax-1); break;
+      case 'xMaxzMax': obj.xMax=Math.max(snappedX,obj.xMin+1); obj.zMax=Math.max(snappedZ,obj.zMin+1); break;
     }
-    _setStatus(`${o.id}: x[${o.xMin}→${o.xMax}]  z[${o.zMin}→${o.zMax}]`);
-  } else if (['yMin','yMax'].includes(ht)) {
-    const y=_worldYFromView(cx,cy,vp); if (y===null) return;
-    const snap=_f2(y);
-    if (ht==='yMin') o.yMin=Math.min(snap,o.yMax-0.1);
-    else             o.yMax=Math.max(snap,o.yMin+0.1);
-    _setStatus(`${o.id}: y[${o.yMin}→${o.yMax}]`);
-  } else if (['xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'].includes(ht)) {
-    const wp=frontToWorld(cx,cy); if (!wp) return;
-    const sx=snapGrid(wp.x,'front'), sy=_f2(wp.y);
-    switch (ht) {
-      case 'xMinyMin': o.xMin=Math.min(sx,o.xMax-1); o.yMin=Math.min(sy,o.yMax-0.1); break;
-      case 'xMinyMax': o.xMin=Math.min(sx,o.xMax-1); o.yMax=Math.max(sy,o.yMin+0.1); break;
-      case 'xMaxyMin': o.xMax=Math.max(sx,o.xMin+1); o.yMin=Math.min(sy,o.yMax-0.1); break;
-      case 'xMaxyMax': o.xMax=Math.max(sx,o.xMin+1); o.yMax=Math.max(sy,o.yMin+0.1); break;
+    _setStatus(`${obj.id}: x[${obj.xMin}→${obj.xMax}]  z[${obj.zMin}→${obj.zMax}]`);
+  } else if (['yMin','yMax'].includes(handleType)) {
+    const rawY=_worldYFromView(mouseX,mouseY,viewport); if (rawY===null) return;
+    const snappedY=_round2dp(rawY);
+    if (handleType==='yMin') obj.yMin=Math.min(snappedY,obj.yMax-0.1);
+    else                     obj.yMax=Math.max(snappedY,obj.yMin+0.1);
+    _setStatus(`${obj.id}: y[${obj.yMin}→${obj.yMax}]`);
+  } else if (['xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'].includes(handleType)) {
+    const worldPos=frontToWorld(mouseX,mouseY); if (!worldPos) return;
+    const snappedX=snapGrid(worldPos.x,'front'), snappedY=_round2dp(worldPos.y);
+    switch (handleType) {
+      case 'xMinyMin': obj.xMin=Math.min(snappedX,obj.xMax-1); obj.yMin=Math.min(snappedY,obj.yMax-0.1); break;
+      case 'xMinyMax': obj.xMin=Math.min(snappedX,obj.xMax-1); obj.yMax=Math.max(snappedY,obj.yMin+0.1); break;
+      case 'xMaxyMin': obj.xMax=Math.max(snappedX,obj.xMin+1); obj.yMin=Math.min(snappedY,obj.yMax-0.1); break;
+      case 'xMaxyMax': obj.xMax=Math.max(snappedX,obj.xMin+1); obj.yMax=Math.max(snappedY,obj.yMin+0.1); break;
     }
-    _setStatus(`${o.id}: x[${o.xMin}→${o.xMax}]  y[${o.yMin}→${o.yMax}]`);
-  } else if (['zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'].includes(ht)) {
-    const wp=sideToWorld(cx,cy); if (!wp) return;
-    const sz=snapGrid(wp.z,'side'), sy=_f2(wp.y);
-    switch (ht) {
-      case 'zMinyMin': o.zMin=Math.min(sz,o.zMax-1); o.yMin=Math.min(sy,o.yMax-0.1); break;
-      case 'zMinyMax': o.zMin=Math.min(sz,o.zMax-1); o.yMax=Math.max(sy,o.yMin+0.1); break;
-      case 'zMaxyMin': o.zMax=Math.max(sz,o.zMin+1); o.yMin=Math.min(sy,o.yMax-0.1); break;
-      case 'zMaxyMax': o.zMax=Math.max(sz,o.zMin+1); o.yMax=Math.max(sy,o.yMin+0.1); break;
+    _setStatus(`${obj.id}: x[${obj.xMin}→${obj.xMax}]  y[${obj.yMin}→${obj.yMax}]`);
+  } else if (['zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'].includes(handleType)) {
+    const worldPos=sideToWorld(mouseX,mouseY); if (!worldPos) return;
+    const snappedZ=snapGrid(worldPos.z,'side'), snappedY=_round2dp(worldPos.y);
+    switch (handleType) {
+      case 'zMinyMin': obj.zMin=Math.min(snappedZ,obj.zMax-1); obj.yMin=Math.min(snappedY,obj.yMax-0.1); break;
+      case 'zMinyMax': obj.zMin=Math.min(snappedZ,obj.zMax-1); obj.yMax=Math.max(snappedY,obj.yMin+0.1); break;
+      case 'zMaxyMin': obj.zMax=Math.max(snappedZ,obj.zMin+1); obj.yMin=Math.min(snappedY,obj.yMax-0.1); break;
+      case 'zMaxyMax': obj.zMax=Math.max(snappedZ,obj.zMin+1); obj.yMax=Math.max(snappedY,obj.yMin+0.1); break;
     }
-    _setStatus(`${o.id}: z[${o.zMin}→${o.zMax}]  y[${o.yMin}→${o.yMax}]`);
+    _setStatus(`${obj.id}: z[${obj.zMin}→${obj.zMax}]  y[${obj.yMin}→${obj.yMax}]`);
   }
   rebuildLevel();
 }
 
-function _onMouseMove(cx, cy, dx, dy) {
-  // Use activeVP (locked on mousedown) when a button is held so drags don't
+function _onMouseMove(mouseX, mouseY, deltaX, deltaY) {
+  // Use activeViewport (locked on mousedown) when a button is held so drags don't
   // jump viewport mid-gesture.  For plain hover, always compute fresh.
-  const hoverVP = getViewportAt(cx, cy);
-  const vp = (mouseButtons.left || mouseButtons.middle || mouseButtons.right)
-    ? (activeVP || hoverVP)
-    : hoverVP;
-  _setVPHighlight(hoverVP);
+  const hoverViewport = getViewportAt(mouseX, mouseY);
+  const viewport = (mouseButtons.left || mouseButtons.middle || mouseButtons.right)
+    ? (activeViewport || hoverViewport)
+    : hoverViewport;
+  _setVPHighlight(hoverViewport);
 
-  if (_dragHandle && mouseButtons.left) { _handleResizeDrag(cx, cy, vp); return; }
+  if (_dragHandle && mouseButtons.left) { _handleResizeDrag(mouseX, mouseY, viewport); return; }
 
   // Selection move — use whichever viewport the drag started in
   if (_dragMove && mouseButtons.left && _dragDistance > DRAG_THRESHOLD) {
-    const dvp = _dragMove.vp;
-    if (dvp==='top') {
-      const wp=topToWorld(cx,cy); if(!wp) return;
-      _applyMoveDelta(Math.round(wp.x-_dragMove.worldStart.x), Math.round(wp.z-_dragMove.worldStart.z), 0);
-    } else if (dvp==='front') {
-      const wp=frontToWorld(cx,cy); if(!wp) return;
-      _applyMoveDelta(Math.round(wp.x-_dragMove.worldStart.x), 0, _f2(wp.y-_dragMove.worldStart.y));
-    } else if (dvp==='side') {
-      const wp=sideToWorld(cx,cy); if(!wp) return;
-      _applyMoveDelta(0, Math.round(wp.z-_dragMove.worldStart.z), _f2(wp.y-_dragMove.worldStart.y));
+    const dragViewport = _dragMove.vp;
+    if (dragViewport==='top') {
+      const worldPos=topToWorld(mouseX,mouseY); if(!worldPos) return;
+      _applyMoveDelta(Math.round(worldPos.x-_dragMove.worldStart.x), Math.round(worldPos.z-_dragMove.worldStart.z), 0);
+    } else if (dragViewport==='front') {
+      const worldPos=frontToWorld(mouseX,mouseY); if(!worldPos) return;
+      _applyMoveDelta(Math.round(worldPos.x-_dragMove.worldStart.x), 0, _round2dp(worldPos.y-_dragMove.worldStart.y));
+    } else if (dragViewport==='side') {
+      const worldPos=sideToWorld(mouseX,mouseY); if(!worldPos) return;
+      _applyMoveDelta(0, Math.round(worldPos.z-_dragMove.worldStart.z), _round2dp(worldPos.y-_dragMove.worldStart.y));
     }
     return;
   }
 
   // Marquee
   if (_dragMarquee && mouseButtons.left && _dragDistance > DRAG_THRESHOLD) {
-    _updateMarqueeRect(_dragMarquee.startCSS, {x:cx,y:cy});
+    _updateMarqueeRect(_dragMarquee.startCSS, {x:mouseX,y:mouseY});
   }
 
   // Persp right-drag look
-  if (mouseButtons.right && vp==='persp') {
-    perspYaw  -=dx*0.005;
-    perspPitch=Math.max(-1.4,Math.min(1.4,perspPitch-dy*0.005));
+  if (mouseButtons.right && viewport==='persp') {
+    perspYaw  -=deltaX*0.005;
+    perspPitch=Math.max(-1.4,Math.min(1.4,perspPitch-deltaY*0.005));
     _applyPerspCam();
   }
 
   // Ortho pan — middle-drag or right-drag (non-persp)
-  if (mouseButtons.middle || (mouseButtons.right && vp!=='persp')) {
-    const ps=orthoZoom/(canvas.clientWidth/2)*3;
-    if(vp==='top')   { topPanX-=dx*ps; topPanZ-=dy*ps; _applyTopCam(); }
-    if(vp==='front') { frontPanX-=dx*ps; frontPanY+=dy*ps; _applyFrontCam(); }
-    if(vp==='side')  { sidePanZ-=dx*ps; sidePanY+=dy*ps; _applySideCam(); }
+  if (mouseButtons.middle || (mouseButtons.right && viewport!=='persp')) {
+    const panScale=orthoZoom/(canvas.clientWidth/2)*3;
+    if(viewport==='top')   { topPanX-=deltaX*panScale; topPanZ-=deltaY*panScale; _applyTopCam(); }
+    if(viewport==='front') { frontPanX-=deltaX*panScale; frontPanY+=deltaY*panScale; _applyFrontCam(); }
+    if(viewport==='side')  { sidePanZ-=deltaX*panScale; sidePanY+=deltaY*panScale; _applySideCam(); }
   }
 
   // Room / brush draw
-  if (mouseButtons.left && (ES.tool==='room'||ES.tool==='brush') && ES.drawing && vp==='top') {
-    const wp=topToWorld(cx,cy);
-    if (wp) { ES.drawEnd={x:snapGrid(wp.x),z:snapGrid(wp.z)}; _updateDrawRect(); _updatePreviewBox(); }
+  if (mouseButtons.left && (ES.tool==='room'||ES.tool==='brush') && ES.drawing && viewport==='top') {
+    const worldPos=topToWorld(mouseX,mouseY);
+    if (worldPos) { ES.drawEnd={x:snapGrid(worldPos.x),z:snapGrid(worldPos.z)}; _updateDrawRect(); _updatePreviewBox(); }
   }
 
   // Hover highlight (top view only, non-drag)
-  if (vp==='top'&&!mouseButtons.left) {
-    const wp=topToWorld(cx,cy);
-    if(wp) { hoverMesh.position.set(snapGrid(wp.x),0.01,snapGrid(wp.z)); hoverMesh.visible=true; }
-  } else if(vp!=='top') hoverMesh.visible=false;
+  if (viewport==='top'&&!mouseButtons.left) {
+    const worldPos=topToWorld(mouseX,mouseY);
+    if(worldPos) { hoverMesh.position.set(snapGrid(worldPos.x),0.01,snapGrid(worldPos.z)); hoverMesh.visible=true; }
+  } else if(viewport!=='top') hoverMesh.visible=false;
 
   // Cursor feedback in select mode
   if (ES.tool==='select' && !mouseButtons.left) {
     if (_dragMove) {
       canvas.style.cursor='grabbing';
     } else {
-      const ht=_raycastHandles(cx,cy,vp);
-      if (ht) {
+      const handleType=_raycastHandles(mouseX,mouseY,viewport);
+      if (handleType) {
         // Corner handles → diagonal resize; edge handles → axis resize
-        const isCorner=CORNER_AXES.includes(ht);
-        const isX=(ht==='xMin'||ht==='xMax');
-        const isY=(ht==='yMin'||ht==='yMax');
+        const isCorner=CORNER_AXES.includes(handleType);
+        const isX=(handleType==='xMin'||handleType==='xMax');
+        const isY=(handleType==='yMin'||handleType==='yMax');
         canvas.style.cursor = isCorner ? 'nwse-resize' : isY ? 'ns-resize' : isX ? 'ew-resize' : 'ns-resize';
       } else {
-        const ud=_raycastLevel(cx,cy,vp);
-        canvas.style.cursor = (ud && ud.kind && ud.kind!=='_entityRange') ? 'grab' : 'default';
+        const hitData=_raycastLevel(mouseX,mouseY,viewport);
+        canvas.style.cursor = (hitData && hitData.kind && hitData.kind!=='_entityRange') ? 'grab' : 'default';
       }
     }
   } else if (ES.tool==='select' && mouseButtons.left && _dragMove) {
@@ -1182,17 +1182,17 @@ function _onMouseMove(cx, cy, dx, dy) {
   }
 
   // Coord readout
-  if (vp==='top') {
-    const wp=topToWorld(cx,cy);
-    if(wp) document.getElementById('coord-top').textContent=`X ${wp.x.toFixed(1)}  Z ${wp.z.toFixed(1)}`;
+  if (viewport==='top') {
+    const worldPos=topToWorld(mouseX,mouseY);
+    if(worldPos) document.getElementById('coord-top').textContent=`X ${worldPos.x.toFixed(1)}  Z ${worldPos.z.toFixed(1)}`;
   }
 }
 
 // ── Move drag helpers ─────────────────────────────────────────────────────────
-function _startMoveDrag(worldPos, vp) {
+function _startMoveDrag(worldPos, viewport) {
   _pushUndo();
   _dragMove = {
-    vp: vp || 'top',
+    vp: viewport || 'top',
     worldStart: { x: worldPos.x||0, y: worldPos.y||0, z: worldPos.z||0 },
     origStates: ES.selection.map(s => {
       const ent=_getEntityByKind(s.kind,s.id);
@@ -1206,21 +1206,21 @@ function _startMoveDrag(worldPos, vp) {
   };
 }
 
-function _applyMoveDelta(dx, dz, dy=0) {
+function _applyMoveDelta(deltaX, deltaZ, deltaY=0) {
   if (!_dragMove) return;
-  dy = _f2(dy);
+  deltaY = _round2dp(deltaY);
   _dragMove.origStates.forEach(s => {
     if (!s.orig) return;
     const ent=_getEntityByKind(s.kind,s.id); if(!ent) return;
-    if (s.kind==='room')       { ent.xMin=s.orig.xMin+dx; ent.xMax=s.orig.xMax+dx; ent.zMin=s.orig.zMin+dz; ent.zMax=s.orig.zMax+dz; }
-    else if (s.kind==='standalone'||s.kind==='nav') { ent.x=s.orig.x+dx; ent.z=s.orig.z+dz; }
-    else if (s.kind==='brush') { ent.xMin=s.orig.xMin+dx; ent.xMax=s.orig.xMax+dx; ent.zMin=s.orig.zMin+dz; ent.zMax=s.orig.zMax+dz;
-                                 ent.yMin=_f2(s.orig.yMin+dy); ent.yMax=_f2(s.orig.yMax+dy); }
-    else if (s.kind==='entity') { ent.x=s.orig.x+dx; ent.z=s.orig.z+dz; ent.y=_f2(s.orig.y+dy); }
+    if (s.kind==='room')       { ent.xMin=s.orig.xMin+deltaX; ent.xMax=s.orig.xMax+deltaX; ent.zMin=s.orig.zMin+deltaZ; ent.zMax=s.orig.zMax+deltaZ; }
+    else if (s.kind==='standalone'||s.kind==='nav') { ent.x=s.orig.x+deltaX; ent.z=s.orig.z+deltaZ; }
+    else if (s.kind==='brush') { ent.xMin=s.orig.xMin+deltaX; ent.xMax=s.orig.xMax+deltaX; ent.zMin=s.orig.zMin+deltaZ; ent.zMax=s.orig.zMax+deltaZ;
+                                 ent.yMin=_round2dp(s.orig.yMin+deltaY); ent.yMax=_round2dp(s.orig.yMax+deltaY); }
+    else if (s.kind==='entity') { ent.x=s.orig.x+deltaX; ent.z=s.orig.z+deltaZ; ent.y=_round2dp(s.orig.y+deltaY); }
   });
   rebuildLevel();
-  const parts=[`Δx${dx>=0?'+':''}${dx}`, `Δz${dz>=0?'+':''}${dz}`];
-  if(dy!==0) parts.push(`Δy${dy>=0?'+':''}${dy}`);
+  const parts=[`Δx${deltaX>=0?'+':''}${deltaX}`, `Δz${deltaZ>=0?'+':''}${deltaZ}`];
+  if(deltaY!==0) parts.push(`Δy${deltaY>=0?'+':''}${deltaY}`);
   _setStatus('Move ' + parts.join('  '));
 }
 
@@ -1235,9 +1235,9 @@ function _updateMarqueeRect(a, b) {
 }
 function _hideMarqueeRect() { marqueeRect.setAttribute('visibility','hidden'); }
 
-function _finishMarquee(cssStart, cssEnd, vp, additive) {
-  const cam=_camFor(vp);
-  const r=getViewportRect(vp);
+function _finishMarquee(cssStart, cssEnd, viewport, additive) {
+  const cam=_camFor(viewport);
+  const r=getViewportRect(viewport);
   const sxMin=Math.min(cssStart.x,cssEnd.x), sxMax=Math.max(cssStart.x,cssEnd.x);
   const syMin=Math.min(cssStart.y,cssEnd.y), syMax=Math.max(cssStart.y,cssEnd.y);
 
@@ -1268,15 +1268,15 @@ function _finishMarquee(cssStart, cssEnd, vp, additive) {
 }
 
 // ── Arrow key + Ctrl+D movement / duplication ─────────────────────────────────
-function _moveSelection(dx, dz, dy=0) {
+function _moveSelection(deltaX, deltaZ, deltaY=0) {
   if (!ES.selection.length) return;
   _pushUndo();
   ES.selection.forEach(s => {
     const ent=_getEntityByKind(s.kind,s.id); if(!ent) return;
-    if (s.kind==='room')       { ent.xMin+=dx; ent.xMax+=dx; ent.zMin+=dz; ent.zMax+=dz; }
-    else if (s.kind==='standalone'||s.kind==='nav') { ent.x+=dx; ent.z+=dz; }
-    else if (s.kind==='brush') { ent.xMin+=dx; ent.xMax+=dx; ent.zMin+=dz; ent.zMax+=dz; ent.yMin+=dy; ent.yMax+=dy; }
-    else if (s.kind==='entity') { ent.x+=dx; ent.z+=dz; ent.y=(ent.y??0)+dy; }
+    if (s.kind==='room')       { ent.xMin+=deltaX; ent.xMax+=deltaX; ent.zMin+=deltaZ; ent.zMax+=deltaZ; }
+    else if (s.kind==='standalone'||s.kind==='nav') { ent.x+=deltaX; ent.z+=deltaZ; }
+    else if (s.kind==='brush') { ent.xMin+=deltaX; ent.xMax+=deltaX; ent.zMin+=deltaZ; ent.zMax+=deltaZ; ent.yMin+=deltaY; ent.yMax+=deltaY; }
+    else if (s.kind==='entity') { ent.x+=deltaX; ent.z+=deltaZ; ent.y=(ent.y??0)+deltaY; }
   });
   rebuildLevel();
 }
@@ -1465,14 +1465,14 @@ function _getSharedValue(items, field) {
   const vals=items.map(i=>i.data[field]); return vals.every(v=>v===vals[0])?vals[0]:null;
 }
 
-function _buildBatchHTML(kinds, items, n) {
+function _buildBatchHTML(kinds, items, count) {
   const shared = field => _getSharedValue(items, field);
   const bnum = (l,id,field,step=1) => { const v=shared(field); return `<div class="prop-row"><label>${l}</label><input type="number" id="${id}" value="${v!==null?v:''}" step="${step}" placeholder="${v===null?'mixed':''}"></div>`; };
   const bcol = (l,id,field) => { const v=shared(field); const isMixed=v===null; const hex=isMixed?'#808080':_colorToHex(v,0); return `<div class="prop-row"><label>${l}</label><input type="color" id="${id}" value="${hex}"${isMixed?' title="Mixed — will override all" style="opacity:0.55"':''}></div>`; };
   const bsel = (l,id,field,opts) => { const v=shared(field); return `<div class="prop-row"><label>${l}</label><select id="${id}">${v===null?'<option value="" disabled selected>— mixed —</option>':''}${opts.map(o=>`<option value="${o}"${o===v?' selected':''}>${o}</option>`).join('')}</select></div>`; };
 
   const sameKind=kinds.length===1, kind=kinds[0];
-  let html=`<div class="prop-heading">${n} items${sameKind?' · '+kind:' · mixed'}</div>`;
+  let html=`<div class="prop-heading">${count} items${sameKind?' · '+kind:' · mixed'}</div>`;
 
   if (sameKind) {
     if (kind==='room') {
@@ -1532,7 +1532,7 @@ function _buildBatchHTML(kinds, items, n) {
     const bnum2=(l,id,field,step=1)=>{ const v=shared(field); return `<div class="prop-row"><label>${l}</label><input type="number" id="${id}" value="${v!==null?v:''}" step="${step}" placeholder="${v===null?'mixed':''}"></div>`; };
     if (items.every(i=>i.data.elevation!==undefined)) html+=bnum2('Elevation','bm-elev','elevation',0.3);
   }
-  html+=`<p class="hint" style="margin-top:6px;font-size:10px">Changes apply to all ${n} items  ·  Del=delete  Ctrl+D=dup</p>`;
+  html+=`<p class="hint" style="margin-top:6px;font-size:10px">Changes apply to all ${count} items  ·  Del=delete  Ctrl+D=dup</p>`;
   return html;
 }
 
@@ -1622,8 +1622,8 @@ function _bindBatchHandlers(kinds, items) {
   }
 }
 
-function _showBatchProps(kinds, items, n) {
-  propsContent.innerHTML = _buildBatchHTML(kinds, items, n);
+function _showBatchProps(kinds, items, count) {
+  propsContent.innerHTML = _buildBatchHTML(kinds, items, count);
   propsContent.querySelectorAll('[data-ind="1"]').forEach(el=>{ el.indeterminate=true; });
   _bindBatchHandlers(kinds, items);
 }
@@ -1647,13 +1647,13 @@ function _showProps(kind, data) {
   _bindProps(kind,data);
 }
 
-function _propRow(l, id, v, type='text', opts=null, step=1) {
+function _propRow(label, id, value, type='text', options=null, step=1) {
   let input;
-  if      (type==='select') input=`<select id="${id}">${opts.map(o=>`<option value="${o}"${o===v?' selected':''}>${o}</option>`).join('')}</select>`;
-  else if (type==='color')  input=`<input type="color" id="${id}" value="${_colorToHex(v)}">`;
-  else if (type==='number') input=`<input type="number" id="${id}" value="${v||0}" step="${step}">`;
-  else                      input=`<input type="text" id="${id}" value="${v||''}">`;
-  return `<div class="prop-row"><label>${l}</label>${input}</div>`;
+  if      (type==='select') input=`<select id="${id}">${options.map(o=>`<option value="${o}"${o===value?' selected':''}>${o}</option>`).join('')}</select>`;
+  else if (type==='color')  input=`<input type="color" id="${id}" value="${_colorToHex(value)}">`;
+  else if (type==='number') input=`<input type="number" id="${id}" value="${value||0}" step="${step}">`;
+  else                      input=`<input type="text" id="${id}" value="${value||''}">`;
+  return `<div class="prop-row"><label>${label}</label>${input}</div>`;
 }
 const _tr  = (l,id,v)      => _propRow(l, id, v);
 const _tn  = (l,id,v,s=1)  => _propRow(l, id, v, 'number', null, s);
@@ -1973,16 +1973,16 @@ window.addEventListener('keydown',e=>{
   // side (ZY): ←/→ = ±Z,  ↑/↓ = ±Y
   if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
     e.preventDefault();
-    const vp = _lastHoverVP;
+    const viewport = _lastHoverViewport;
     const neg = (e.key==='ArrowLeft'||e.key==='ArrowUp') ? -1 : 1;
     const horiz = (e.key==='ArrowLeft'||e.key==='ArrowRight');
-    if (vp==='top') {
+    if (viewport==='top') {
       if (horiz) _moveSelection(neg, 0, 0);
       else        _moveSelection(0, neg, 0);
-    } else if (vp==='front') {
+    } else if (viewport==='front') {
       if (horiz) _moveSelection(neg, 0, 0);
       else        _moveSelection(0, 0, -neg);
-    } else if (vp==='side') {
+    } else if (viewport==='side') {
       if (horiz) _moveSelection(0, neg, 0);
       else        _moveSelection(0, 0, -neg);
     } else {
@@ -2004,9 +2004,9 @@ document.getElementById('btn-del-obj').addEventListener('click', _deleteSelected
 let _idCtr=1000;
 const _nextId=pfx=>`${pfx}_${++_idCtr}`;
 
-function _toggleLava(cx,cy) {
-  const wp=topToWorld(cx,cy); if(!wp) return;
-  const tx=Math.round(wp.x),tz=Math.round(wp.z);
+function _toggleLava(mouseX,mouseY) {
+  const worldPos=topToWorld(mouseX,mouseY); if(!worldPos) return;
+  const tx=Math.round(worldPos.x),tz=Math.round(worldPos.z);
   const room=ES.rooms.find(r=>r.type!=='ramp'&&tx>=r.xMin&&tx<=r.xMax&&tz>=r.zMin&&tz<=r.zMax);
   if(!room) { _setStatus('No room tile here'); return; }
   if(!room.lavaCoords)  room.lavaCoords=[];
@@ -2020,7 +2020,7 @@ function _placeTile(x,z) { _pushUndo(); const id=_nextId('tile'); ES.standaloneT
 
 // ── SVG draw rect ─────────────────────────────────────────────────────────────
 const drawRect=document.getElementById('draw-rect');
-function _showDrawRect(v) { drawRect.setAttribute('visibility',v?'visible':'hidden'); }
+function _showDrawRect(visible) { drawRect.setAttribute('visibility',visible?'visible':'hidden'); }
 function _updateDrawRect() {
   if(!ES.drawStart||!ES.drawEnd) return;
   const x0=Math.min(ES.drawStart.x,ES.drawEnd.x),x1=Math.max(ES.drawStart.x,ES.drawEnd.x);
@@ -2440,13 +2440,13 @@ function _resize() {
 new ResizeObserver(_resize).observe(canvas.parentElement);
 _resize();
 
-function _renderVP(name, cam, isLive) {
-  const r=getViewportRect(name), W=canvas.clientWidth, H=canvas.clientHeight;
+function _renderVP(viewportName, camera, isLive) {
+  const r=getViewportRect(viewportName), W=canvas.clientWidth, H=canvas.clientHeight;
   const bly=H-r.y-r.h;
   renderer.setViewport(r.x,bly,r.w,r.h); renderer.setScissor(r.x,bly,r.w,r.h); renderer.setScissorTest(true);
   renderer.clear(true,true,true);
   scene.overrideMaterial = isLive ? null : wireframeMat;
-  renderer.render(scene,cam);
+  renderer.render(scene,camera);
   scene.overrideMaterial = null;
   if(!isLive) renderer.clearDepth(); // helpers (grid, handles, selection) always on top in ortho
   // Each ortho view only shows handles for its two active axes — hide depth-axis handles per pass
@@ -2461,22 +2461,22 @@ function _renderVP(name, cam, isLive) {
             'xMinzMin','xMinzMax','xMaxzMin','xMaxzMax',   // XZ corners only for Top
             'xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'],  // XY corners only for Front
   };
-  const _axesToHide = _vpHideAxes[name] || [];
+  const _axesToHide = _vpHideAxes[viewportName] || [];
   const _savedVis = {};
   _axesToHide.forEach(ax=>{ _savedVis[ax]=handleMeshes[ax]?.visible; if(handleMeshes[ax]) handleMeshes[ax].visible=false; });
   // Each ortho view only shows its own grid to prevent other grids projecting
   // edge-on and overdrawing the axis lines. Persp respects per-grid toggles.
-  const _gridVis = name === 'persp'
+  const _gridVis = viewportName === 'persp'
     ? [_perspGridVis.xz, _perspGridVis.xy, _perspGridVis.zy]
-    : ({ top:[true,false,false], front:[false,true,false], side:[false,false,true] }[name] || [true,true,true]);
+    : ({ top:[true,false,false], front:[false,true,false], side:[false,false,true] }[viewportName] || [true,true,true]);
   [gridTop,gridFront,gridSide].forEach((g,i)=>{ g.visible=_gridVis[i]; });
   // Apply per-viewport grid depth-test setting (on = grid respects solid geometry).
   const _grids = [gridTop,gridFront,gridSide];
-  const _gdt = _vpSnap[name]?.gridDepthTest ?? false;
+  const _gdt = _vpSnap[viewportName]?.gridDepthTest ?? false;
   if (_gdt) _grids.forEach(g=>{ [g.material].flat().forEach(m=>{ m.depthTest=true; }); });
-  const _showEdges = _vpSnap[name]?.showBrushEdges ?? true;
+  const _showEdges = _vpSnap[viewportName]?.showBrushEdges ?? true;
   brushEdgeGroup.visible = _showEdges;
-  renderer.render(helperScene,cam);
+  renderer.render(helperScene,camera);
   brushEdgeGroup.visible = true;
   if (_gdt) _grids.forEach(g=>{ [g.material].flat().forEach(m=>{ m.depthTest=false; }); });
   [gridTop,gridFront,gridSide].forEach(g=>{ g.visible=true; });
@@ -2513,10 +2513,10 @@ function _updateAxisLabels3D() {
     const cssX = r.x + (_ax3dTmp.x + 1) / 2 * r.w;
     const cssY = r.y + (1 - _ax3dTmp.y) / 2 * r.h;
     // Clamp to stay inside the viewport
-    const cx = Math.max(xMin, Math.min(xMax, cssX));
-    const cy = Math.max(yMin, Math.min(yMax, cssY));
-    _ax3d[key].style.left = cx + 'px';
-    _ax3d[key].style.top  = cy + 'px';
+    const clampedX = Math.max(xMin, Math.min(xMax, cssX));
+    const clampedY = Math.max(yMin, Math.min(yMax, cssY));
+    _ax3d[key].style.left = clampedX + 'px';
+    _ax3d[key].style.top  = clampedY + 'px';
     // Shift label so its centre sits on the projected point
     _ax3d[key].style.transform = 'translate(-50%, -50%)';
   }
