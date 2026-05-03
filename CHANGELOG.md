@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.3] - 2026-05-03
+### Added
+- **Viewport axis orientation labels** — small monospace labels (+X, -X, +Z, -Z, +Y, -Y) appear at the edges of all four editor viewports so the active world axes are always visible at a glance.
+  - **Side view (ZY / TL):** +Z right, -Z left, +Y top, -Y bottom.
+  - **Top view (XZ / TR):** +X right, -X left, -Z top, +Z bottom (matches camera up=(0,0,-1)).
+  - **Front view (XY / BR):** +X right, -X left, +Y top, -Y bottom.
+  - **3D view (BL):** +X, -X, +Z, -Z labels are projected from world space into screen space each animation frame and clamped within the viewport bounds; they track the perspective camera as it orbits.
+
+---
+
 ## [1.6.2] - 2026-05-01
 ### Fixed
 - **Click-to-move broken on brush-based levels** — hover raycast used `bestObj.position.x/z` (the mesh center) to resolve the target cell; for large brushes (e.g. the 17×17 main floor) this always resolved to the brush's geometric center, so every click pathfound to (0, 0). Fixed by using `best.point.x/z` (the actual ray–surface intersection) to find the hovered cell.

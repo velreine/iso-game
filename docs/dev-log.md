@@ -23,6 +23,7 @@ A step-by-step record of every feature added to the game, with the most importan
 15. [Stage 15 — Room 3 & Ramp Connection](#stage-15)
 19. [Stage 19 — Editor Load Level & Manifest Discovery (v1.6.0)](#stage-19)
 20. [Stage 20 — Navmesh Navigation Fix (v1.6.2)](#stage-20)
+21. [Stage 21 — Viewport Axis Orientation Labels (v1.6.3)](#stage-21)
 
 ---
 
@@ -1533,3 +1534,57 @@ This correctly blocks:
 - **Lava pit** (`b_lava`, x:4–7, z:4–7) — pathfinder routes around it
 - **Corridor pillars** (`b_pill_*`) — the two blocked cells at z=8 funnel the path through the single open cell between them
 - **Platform altar** (`b_altar`, x:0, z:19) — the altar cell is impassable; adjacent platform cells remain walkable
+
+---
+
+<a name="stage-21"></a>
+## Stage 21 — Viewport Axis Orientation Labels (v1.6.3)
+
+### Goal
+
+Make it immediately obvious which world axis runs in which screen direction inside every editor viewport, without cluttering the existing UI.
+
+### Approach
+
+Each ortho viewport has a fixed, known camera orientation, so its axis labels can be placed with pure CSS using percentage-based `left`/`top` positions relative to the `#viewports` container. The 3D perspective view rotates freely, so its labels must be re-projected from world space every frame.
+
+### Static labels (CSS)
+
+Sixteen `<div class="vp-axis">` elements are inserted into `#viewports`. The base `.vp-axis` rule gives them all the same look — 10 px monospace, soft blue-white, dual text-shadow for legibility against any background — while per-ID rules snap each one to its viewport edge:
+
+```css
+.vp-axis {
+  position: absolute;
+  font-size: 10px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  color: rgba(180, 220, 255, 0.70);
+  pointer-events: none;
+  z-index: 10;
+  text-shadow: 0 0 3px #000, 0 0 6px #000;
+}
+
+/* Example — +X on the right edge of the Top view (TR quadrant) */
+#ax-top-px { right: 2px; top: 25%; transform: translateY(-50%); }
+```
+
+The `#viewports` div is split 50 / 50, so each quadrant's midpoint is at 25 % or 75 % of the total height / width, making the edge-centred maths straightforward.
+
+### Dynamic labels for the 3D viewport (JS)
+
+Four additional divs (`ax-3d-px`, `ax-3d-nx`, `ax-3d-pz`, `ax-3d-nz`) are positioned by `_updateAxisLabels3D()`, called at the end of every `animate()` frame. The function projects fixed world-space sentinel points (±9 on each axis) through `perspCam`, converts the resulting NDC coordinates to CSS pixels within the BL viewport rect, clamps them to a 12 px inset margin, and writes `style.left` / `style.top`:
+
+```js
+function _updateAxisLabels3D() {
+  const r = getViewportRect('persp');
+  for (const key in _ax3d) {
+    _ax3dTmp.copy(_ax3dPts[key]).project(perspCam);
+    const cssX = r.x + (_ax3dTmp.x + 1) / 2 * r.w;
+    const cssY = r.y + (1 - _ax3dTmp.y) / 2 * r.h;
+    _ax3d[key].style.left = Math.max(r.x+12, Math.min(r.x+r.w-12, cssX)) + 'px';
+    _ax3d[key].style.top  = Math.max(r.y+12, Math.min(r.y+r.h-12, cssY)) + 'px';
+    _ax3d[key].style.transform = 'translate(-50%, -50%)';
+  }
+}
+```
+
+DOM references and `THREE.Vector3` objects are cached outside the function so the hot path allocates nothing.

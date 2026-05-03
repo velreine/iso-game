@@ -55,6 +55,28 @@
       <div class="vp-outline" id="vp-outline-front"></div>
       <div class="vp-outline" id="vp-outline-side"></div>
 
+      <!-- Axis orientation labels (static for ortho views, dynamic JS for 3D) -->
+      <!-- Side view (TL): camera looks along +X; screen-right=+Z, screen-up=+Y -->
+      <div class="vp-axis" id="ax-side-pz">+Z</div>
+      <div class="vp-axis" id="ax-side-nz">-Z</div>
+      <div class="vp-axis" id="ax-side-py">+Y</div>
+      <div class="vp-axis" id="ax-side-ny">-Y</div>
+      <!-- Top view (TR): camera looks down -Y, up=(0,0,-1); screen-right=+X, screen-up=-Z -->
+      <div class="vp-axis" id="ax-top-px">+X</div>
+      <div class="vp-axis" id="ax-top-nx">-X</div>
+      <div class="vp-axis" id="ax-top-nz">-Z</div>
+      <div class="vp-axis" id="ax-top-pz">+Z</div>
+      <!-- Front view (BR): camera looks along -Z; screen-right=+X, screen-up=+Y -->
+      <div class="vp-axis" id="ax-front-px">+X</div>
+      <div class="vp-axis" id="ax-front-nx">-X</div>
+      <div class="vp-axis" id="ax-front-py">+Y</div>
+      <div class="vp-axis" id="ax-front-ny">-Y</div>
+      <!-- 3D view (BL): positions set each frame by JS projection -->
+      <div class="vp-axis" id="ax-3d-px">+X</div>
+      <div class="vp-axis" id="ax-3d-nx">-X</div>
+      <div class="vp-axis" id="ax-3d-pz">+Z</div>
+      <div class="vp-axis" id="ax-3d-nz">-Z</div>
+
       <!-- SVG overlay: room-draw preview + marquee selection -->
       <svg id="draw-svg" xmlns="http://www.w3.org/2000/svg">
         <rect id="draw-rect"

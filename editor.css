@@ -201,6 +201,45 @@ html, body {
 /* coord-side in TL quadrant, bottom of that quadrant */
 #coord-side  { top: 50%;  left:  6px;  transform: translateY(-28px); }
 
+/* ── Axis orientation labels ─────────────────────────────────────────────── */
+/* Base style — all labels share these properties */
+.vp-axis {
+  position: absolute;
+  font-size: 11px;
+  font-weight: bold;
+  font-family: 'Consolas', 'Courier New', monospace;
+  color: rgba(255, 255, 255, 0.90);
+  pointer-events: none;
+  z-index: 10;
+  user-select: none;
+  text-shadow: 0 0 4px #000, 0 0 8px #000;
+  white-space: nowrap;
+}
+
+/* ── Side view (TL: x=0–50%, y=0–50%) ──────────────────────────────────── */
+/* camera looks +X → screen-right=+Z, screen-up=+Y */
+#ax-side-pz { left: calc(50% - 2px); top: 25%; transform: translate(-100%, -50%); }
+#ax-side-nz { left: 2px;             top: 25%; transform: translateY(-50%); }
+#ax-side-py { left: 25%;             top: 2px; transform: translateX(-50%); }
+#ax-side-ny { left: 25%; top: calc(50% - 2px); transform: translate(-50%, -100%); }
+
+/* ── Top view (TR: x=50–100%, y=0–50%) ──────────────────────────────────── */
+/* camera looks down -Y, up=(0,0,-1) → screen-right=+X, screen-up=-Z */
+#ax-top-px  { right: 2px;              top: 25%; transform: translateY(-50%); }
+#ax-top-nx  { left: calc(50% + 2px);  top: 25%; transform: translateY(-50%); }
+#ax-top-nz  { left: 75%;              top: 2px; transform: translateX(-50%); }
+#ax-top-pz  { left: 75%; top: calc(50% - 2px);  transform: translate(-50%, -100%); }
+
+/* ── Front view (BR: x=50–100%, y=50–100%) ──────────────────────────────── */
+/* camera looks -Z → screen-right=+X, screen-up=+Y */
+#ax-front-px { right: 2px;             top: 75%; transform: translateY(-50%); }
+#ax-front-nx { left: calc(50% + 2px); top: 75%; transform: translateY(-50%); }
+#ax-front-py { left: 75%; top: calc(50% + 2px);  transform: translateX(-50%); }
+#ax-front-ny { left: 75%; bottom: 2px;            transform: translateX(-50%); }
+
+/* ── 3D view (BL): positions driven by JS each frame ─────────────────────── */
+#ax-3d-px, #ax-3d-nx, #ax-3d-pz, #ax-3d-nz { position: absolute; }
+
 /* SVG draw overlay */
 #draw-svg {
   position: absolute;
@@ -576,14 +615,7 @@ html, body {
 .modal-box .hint {
   font-size: 11px;
   color: var(--text-dim);
-  margin-bottom: 8px;
-}
-.modal-box .hint code {
-  background: var(--bg3);
-  border-radius: 3px;
-  padding: 1px 4px;
-  font-family: 'Consolas', monospace;
-  color: var(--text);
+  padding: 4px 0;
 }
 
 /* ── Select (dropdown) custom ─────────────────────────────────────────────── */

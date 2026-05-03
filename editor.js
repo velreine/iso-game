@@ -2577,6 +2577,46 @@ function _renderVP(name, cam, isLive) {
   [gridTop,gridFront,gridSide].forEach(g=>{ g.visible=true; });
   _axesToHide.forEach(ax=>{ if(handleMeshes[ax]) handleMeshes[ax].visible=_savedVis[ax]; });
 }
+// ── 3D-viewport axis label projection ────────────────────────────────────────
+// Cache DOM references once so we don't query the DOM every frame.
+const _ax3d = {
+  px: document.getElementById('ax-3d-px'),
+  nx: document.getElementById('ax-3d-nx'),
+  pz: document.getElementById('ax-3d-pz'),
+  nz: document.getElementById('ax-3d-nz'),
+};
+// World points that represent each axis direction (far enough to be stable).
+const _ax3dPts = {
+  px: new THREE.Vector3( 9, 0,  0),
+  nx: new THREE.Vector3(-9, 0,  0),
+  pz: new THREE.Vector3( 0, 0,  9),
+  nz: new THREE.Vector3( 0, 0, -9),
+};
+const _ax3dTmp = new THREE.Vector3();
+
+function _updateAxisLabels3D() {
+  const r = getViewportRect('persp');   // {x, y, w, h} in CSS pixels (y=top-down)
+  // Margin so labels don't clip at the very edge of the viewport
+  const M = 12;
+  const xMin = r.x + M, xMax = r.x + r.w - M;
+  const yMin = r.y + M, yMax = r.y + r.h - M;
+
+  for (const key in _ax3d) {
+    // Project world point through perspCam to NDC [-1,1]
+    _ax3dTmp.copy(_ax3dPts[key]).project(perspCam);
+    // Convert NDC → CSS pixel coords within the BL viewport
+    const cssX = r.x + (_ax3dTmp.x + 1) / 2 * r.w;
+    const cssY = r.y + (1 - _ax3dTmp.y) / 2 * r.h;
+    // Clamp to stay inside the viewport
+    const cx = Math.max(xMin, Math.min(xMax, cssX));
+    const cy = Math.max(yMin, Math.min(yMax, cssY));
+    _ax3d[key].style.left = cx + 'px';
+    _ax3d[key].style.top  = cy + 'px';
+    // Shift label so its centre sits on the projected point
+    _ax3d[key].style.transform = 'translate(-50%, -50%)';
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
   _flyTick();
@@ -2585,6 +2625,7 @@ function animate() {
   _renderVP('front',frontCam,false);
   _renderVP('side', sideCam, false);
   renderer.setScissorTest(false);
+  _updateAxisLabels3D();
 }
 animate();
 
