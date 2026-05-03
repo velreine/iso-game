@@ -6,6 +6,12 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.7] - 2026-05-03
+### Changed
+- **Added `_f2(v)` precision helper** — replaces 8 instances of `parseFloat(v.toFixed(2))` in resize drag, move drag, and `_applyMoveDelta`. Defined as a module-level constant alongside `_colorToHex`.
+- **Extracted `_getSharedValue(items, field)` module-level helper** — owns the "all values equal → return value, else null" logic used by `_buildBatchHTML`. The function's local `shared` closure is now a one-liner delegation.
+- **Extracted `_handleResizeDrag(cx, cy, vp)` from `_onMouseMove`** — the 50-line, four-branch handle-resize block (XZ top-view, Y edges, XY front-view, ZY side-view) is now a standalone function. `_onMouseMove` replaces it with a single guarded call and early return, reducing the function from ~136 to ~85 lines.
+
 ## [1.6.6] - 2026-05-03
 ### Changed
 - **Added `_getEntityByKind(kind, id)` helper** — consolidates all per-kind array lookups into a single function. Used in `_startMoveDrag`, `_applyMoveDelta`, `_moveSelection`, `_duplicateSelection`, `_showPropsForSelection` (both single and batch paths), and `_getItemDisplay`, replacing ~25 inline `.find()` chains.

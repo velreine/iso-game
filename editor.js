@@ -6,6 +6,7 @@ const TILE_SIZE          = 1.0;
 const SELECTION_COLOR    = 0xffcc00;  // selection highlight / handle corners
 const DEFAULT_FACE_COLOR = 0x808080;  // default brush face / entity colour
 const _colorToHex = (c, fallback=DEFAULT_FACE_COLOR) => '#' + ((c||fallback)>>>0).toString(16).padStart(6,'0');
+const _f2 = v => parseFloat(v.toFixed(2));  // snap float to 2 decimal places
 // Per-viewport snap settings (tile = cell centres, intersection = grid line crossings).
 const _vpSnap = {
   top:   { tile: true, intersection: false, gridDepthTest: false, showBrushEdges: true  },
@@ -1054,6 +1055,52 @@ function _onLeftUp(ctrl) {
 }
 
 // ── Mouse move ────────────────────────────────────────────────────────────────
+function _handleResizeDrag(cx, cy, vp) {
+  const o=_dragHandle.obj, ht=_dragHandle.type;
+  if (['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'].includes(ht)) {
+    const wp=topToWorld(cx,cy); if (!wp) return;
+    const sx=snapGrid(wp.x,'top'), sz=snapGrid(wp.z,'top');
+    switch (ht) {
+      case 'xMin':     o.xMin=Math.min(sx,o.xMax-1); break;
+      case 'xMax':     o.xMax=Math.max(sx,o.xMin+1); break;
+      case 'zMin':     o.zMin=Math.min(sz,o.zMax-1); break;
+      case 'zMax':     o.zMax=Math.max(sz,o.zMin+1); break;
+      case 'xMinzMin': o.xMin=Math.min(sx,o.xMax-1); o.zMin=Math.min(sz,o.zMax-1); break;
+      case 'xMinzMax': o.xMin=Math.min(sx,o.xMax-1); o.zMax=Math.max(sz,o.zMin+1); break;
+      case 'xMaxzMin': o.xMax=Math.max(sx,o.xMin+1); o.zMin=Math.min(sz,o.zMax-1); break;
+      case 'xMaxzMax': o.xMax=Math.max(sx,o.xMin+1); o.zMax=Math.max(sz,o.zMin+1); break;
+    }
+    _setStatus(`${o.id}: x[${o.xMin}→${o.xMax}]  z[${o.zMin}→${o.zMax}]`);
+  } else if (['yMin','yMax'].includes(ht)) {
+    const y=_worldYFromView(cx,cy,vp); if (y===null) return;
+    const snap=_f2(y);
+    if (ht==='yMin') o.yMin=Math.min(snap,o.yMax-0.1);
+    else             o.yMax=Math.max(snap,o.yMin+0.1);
+    _setStatus(`${o.id}: y[${o.yMin}→${o.yMax}]`);
+  } else if (['xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'].includes(ht)) {
+    const wp=frontToWorld(cx,cy); if (!wp) return;
+    const sx=snapGrid(wp.x,'front'), sy=_f2(wp.y);
+    switch (ht) {
+      case 'xMinyMin': o.xMin=Math.min(sx,o.xMax-1); o.yMin=Math.min(sy,o.yMax-0.1); break;
+      case 'xMinyMax': o.xMin=Math.min(sx,o.xMax-1); o.yMax=Math.max(sy,o.yMin+0.1); break;
+      case 'xMaxyMin': o.xMax=Math.max(sx,o.xMin+1); o.yMin=Math.min(sy,o.yMax-0.1); break;
+      case 'xMaxyMax': o.xMax=Math.max(sx,o.xMin+1); o.yMax=Math.max(sy,o.yMin+0.1); break;
+    }
+    _setStatus(`${o.id}: x[${o.xMin}→${o.xMax}]  y[${o.yMin}→${o.yMax}]`);
+  } else if (['zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'].includes(ht)) {
+    const wp=sideToWorld(cx,cy); if (!wp) return;
+    const sz=snapGrid(wp.z,'side'), sy=_f2(wp.y);
+    switch (ht) {
+      case 'zMinyMin': o.zMin=Math.min(sz,o.zMax-1); o.yMin=Math.min(sy,o.yMax-0.1); break;
+      case 'zMinyMax': o.zMin=Math.min(sz,o.zMax-1); o.yMax=Math.max(sy,o.yMin+0.1); break;
+      case 'zMaxyMin': o.zMax=Math.max(sz,o.zMin+1); o.yMin=Math.min(sy,o.yMax-0.1); break;
+      case 'zMaxyMax': o.zMax=Math.max(sz,o.zMin+1); o.yMax=Math.max(sy,o.yMin+0.1); break;
+    }
+    _setStatus(`${o.id}: z[${o.zMin}→${o.zMax}]  y[${o.yMin}→${o.yMax}]`);
+  }
+  rebuildLevel();
+}
+
 function _onMouseMove(cx, cy, dx, dy) {
   // Use activeVP (locked on mousedown) when a button is held so drags don't
   // jump viewport mid-gesture.  For plain hover, always compute fresh.
@@ -1063,58 +1110,7 @@ function _onMouseMove(cx, cy, dx, dy) {
     : hoverVP;
   _setVPHighlight(hoverVP);
 
-  // Handle resize
-  if (_dragHandle && mouseButtons.left) {
-    const o=_dragHandle.obj;
-    const ht=_dragHandle.type;
-    if (['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'].includes(ht)) {
-      // Top-view XZ handles
-      const wp=topToWorld(cx,cy); if (!wp) return;
-      const sx=snapGrid(wp.x,'top'), sz=snapGrid(wp.z,'top');
-      switch (ht) {
-        case 'xMin':     o.xMin=Math.min(sx,o.xMax-1); break;
-        case 'xMax':     o.xMax=Math.max(sx,o.xMin+1); break;
-        case 'zMin':     o.zMin=Math.min(sz,o.zMax-1); break;
-        case 'zMax':     o.zMax=Math.max(sz,o.zMin+1); break;
-        case 'xMinzMin': o.xMin=Math.min(sx,o.xMax-1); o.zMin=Math.min(sz,o.zMax-1); break;
-        case 'xMinzMax': o.xMin=Math.min(sx,o.xMax-1); o.zMax=Math.max(sz,o.zMin+1); break;
-        case 'xMaxzMin': o.xMax=Math.max(sx,o.xMin+1); o.zMin=Math.min(sz,o.zMax-1); break;
-        case 'xMaxzMax': o.xMax=Math.max(sx,o.xMin+1); o.zMax=Math.max(sz,o.zMin+1); break;
-      }
-      _setStatus(`${o.id}: x[${o.xMin}→${o.xMax}]  z[${o.zMin}→${o.zMax}]`);
-    } else if (['yMin','yMax'].includes(ht)) {
-      // Edge Y handles
-      const y=_worldYFromView(cx,cy,vp); if (y===null) return;
-      const snap=parseFloat(y.toFixed(2));
-      if (ht==='yMin') o.yMin=Math.min(snap,o.yMax-0.1);
-      else             o.yMax=Math.max(snap,o.yMin+0.1);
-      _setStatus(`${o.id}: y[${o.yMin}→${o.yMax}]`);
-    } else if (['xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'].includes(ht)) {
-      // Front-view XY corners
-      const wp=frontToWorld(cx,cy); if (!wp) return;
-      const sx=snapGrid(wp.x,'front'), sy=parseFloat(wp.y.toFixed(2));
-      switch (ht) {
-        case 'xMinyMin': o.xMin=Math.min(sx,o.xMax-1); o.yMin=Math.min(sy,o.yMax-0.1); break;
-        case 'xMinyMax': o.xMin=Math.min(sx,o.xMax-1); o.yMax=Math.max(sy,o.yMin+0.1); break;
-        case 'xMaxyMin': o.xMax=Math.max(sx,o.xMin+1); o.yMin=Math.min(sy,o.yMax-0.1); break;
-        case 'xMaxyMax': o.xMax=Math.max(sx,o.xMin+1); o.yMax=Math.max(sy,o.yMin+0.1); break;
-      }
-      _setStatus(`${o.id}: x[${o.xMin}→${o.xMax}]  y[${o.yMin}→${o.yMax}]`);
-    } else if (['zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'].includes(ht)) {
-      // Side-view ZY corners
-      const wp=sideToWorld(cx,cy); if (!wp) return;
-      const sz=snapGrid(wp.z,'side'), sy=parseFloat(wp.y.toFixed(2));
-      switch (ht) {
-        case 'zMinyMin': o.zMin=Math.min(sz,o.zMax-1); o.yMin=Math.min(sy,o.yMax-0.1); break;
-        case 'zMinyMax': o.zMin=Math.min(sz,o.zMax-1); o.yMax=Math.max(sy,o.yMin+0.1); break;
-        case 'zMaxyMin': o.zMax=Math.max(sz,o.zMin+1); o.yMin=Math.min(sy,o.yMax-0.1); break;
-        case 'zMaxyMax': o.zMax=Math.max(sz,o.zMin+1); o.yMax=Math.max(sy,o.yMin+0.1); break;
-      }
-      _setStatus(`${o.id}: z[${o.zMin}→${o.zMax}]  y[${o.yMin}→${o.yMax}]`);
-    }
-    rebuildLevel();
-    return;
-  }
+  if (_dragHandle && mouseButtons.left) { _handleResizeDrag(cx, cy, vp); return; }
 
   // Selection move — use whichever viewport the drag started in
   if (_dragMove && mouseButtons.left && _dragDistance > DRAG_THRESHOLD) {
@@ -1124,10 +1120,10 @@ function _onMouseMove(cx, cy, dx, dy) {
       _applyMoveDelta(Math.round(wp.x-_dragMove.worldStart.x), Math.round(wp.z-_dragMove.worldStart.z), 0);
     } else if (dvp==='front') {
       const wp=frontToWorld(cx,cy); if(!wp) return;
-      _applyMoveDelta(Math.round(wp.x-_dragMove.worldStart.x), 0, parseFloat((wp.y-_dragMove.worldStart.y).toFixed(2)));
+      _applyMoveDelta(Math.round(wp.x-_dragMove.worldStart.x), 0, _f2(wp.y-_dragMove.worldStart.y));
     } else if (dvp==='side') {
       const wp=sideToWorld(cx,cy); if(!wp) return;
-      _applyMoveDelta(0, Math.round(wp.z-_dragMove.worldStart.z), parseFloat((wp.y-_dragMove.worldStart.y).toFixed(2)));
+      _applyMoveDelta(0, Math.round(wp.z-_dragMove.worldStart.z), _f2(wp.y-_dragMove.worldStart.y));
     }
     return;
   }
@@ -1212,15 +1208,15 @@ function _startMoveDrag(worldPos, vp) {
 
 function _applyMoveDelta(dx, dz, dy=0) {
   if (!_dragMove) return;
-  dy = parseFloat(dy.toFixed(2));
+  dy = _f2(dy);
   _dragMove.origStates.forEach(s => {
     if (!s.orig) return;
     const ent=_getEntityByKind(s.kind,s.id); if(!ent) return;
     if (s.kind==='room')       { ent.xMin=s.orig.xMin+dx; ent.xMax=s.orig.xMax+dx; ent.zMin=s.orig.zMin+dz; ent.zMax=s.orig.zMax+dz; }
     else if (s.kind==='standalone'||s.kind==='nav') { ent.x=s.orig.x+dx; ent.z=s.orig.z+dz; }
     else if (s.kind==='brush') { ent.xMin=s.orig.xMin+dx; ent.xMax=s.orig.xMax+dx; ent.zMin=s.orig.zMin+dz; ent.zMax=s.orig.zMax+dz;
-                                 ent.yMin=parseFloat((s.orig.yMin+dy).toFixed(2)); ent.yMax=parseFloat((s.orig.yMax+dy).toFixed(2)); }
-    else if (s.kind==='entity') { ent.x=s.orig.x+dx; ent.z=s.orig.z+dz; ent.y=parseFloat((s.orig.y+dy).toFixed(2)); }
+                                 ent.yMin=_f2(s.orig.yMin+dy); ent.yMax=_f2(s.orig.yMax+dy); }
+    else if (s.kind==='entity') { ent.x=s.orig.x+dx; ent.z=s.orig.z+dz; ent.y=_f2(s.orig.y+dy); }
   });
   rebuildLevel();
   const parts=[`Δx${dx>=0?'+':''}${dx}`, `Δz${dz>=0?'+':''}${dz}`];
@@ -1465,8 +1461,12 @@ function _showNavProps(cell) {
   });
 }
 
+function _getSharedValue(items, field) {
+  const vals=items.map(i=>i.data[field]); return vals.every(v=>v===vals[0])?vals[0]:null;
+}
+
 function _buildBatchHTML(kinds, items, n) {
-  const shared = (field) => { const vals=items.map(i=>i.data[field]); return vals.every(v=>v===vals[0])?vals[0]:null; };
+  const shared = field => _getSharedValue(items, field);
   const bnum = (l,id,field,step=1) => { const v=shared(field); return `<div class="prop-row"><label>${l}</label><input type="number" id="${id}" value="${v!==null?v:''}" step="${step}" placeholder="${v===null?'mixed':''}"></div>`; };
   const bcol = (l,id,field) => { const v=shared(field); const isMixed=v===null; const hex=isMixed?'#808080':_colorToHex(v,0); return `<div class="prop-row"><label>${l}</label><input type="color" id="${id}" value="${hex}"${isMixed?' title="Mixed — will override all" style="opacity:0.55"':''}></div>`; };
   const bsel = (l,id,field,opts) => { const v=shared(field); return `<div class="prop-row"><label>${l}</label><select id="${id}">${v===null?'<option value="" disabled selected>— mixed —</option>':''}${opts.map(o=>`<option value="${o}"${o===v?' selected':''}>${o}</option>`).join('')}</select></div>`; };

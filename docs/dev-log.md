@@ -27,6 +27,7 @@ A step-by-step record of every feature added to the game, with the most importan
 22. [Stage 22 — Per-Viewport Show Brush Edges Toggle (v1.6.4)](#stage-22)
 23. [Stage 23 — editor.js Refactor: Constants, Legacy Removal, Split Batch Props (v1.6.5)](#stage-23)
 24. [Stage 24 — editor.js Refactor: Entity Lookup, Prop-Row Unification, Color Helper, Binding Helpers (v1.6.6)](#stage-24)
+25. [Stage 25 — editor.js Refactor: Precision Helper, Shared-Value Helper, Extract Resize Drag (v1.6.7)](#stage-25)
 
 ---
 
@@ -1760,4 +1761,60 @@ function _bindColorField(id, obj, field, afterChange=null) {
 ```
 
 Call sites pass the target object and field directly. `_showBrushProps` supplies `afterBrush = () => { rebuildLevel(); _updateHandles(brush.id,'brush'); }` as the callback; the nav and entity panels pass `() => rebuildLevel()`.
+
+---
+
+<a name="stage-25"></a>
+## Stage 25 — editor.js Refactor: Precision Helper, Shared-Value Helper, Extract Resize Drag (v1.6.7)
+
+### Goal
+
+Three more targeted cleanups in `editor.js`: a micro-helper to eliminate repeated float-precision casts, a module-level shared-value helper to de-duplicate the batch HTML builder, and extraction of the 50-line resize-drag dispatch from `_onMouseMove` into its own function.
+
+### `_f2` precision helper (item 10)
+
+The pattern `parseFloat(v.toFixed(2))` appeared 8 times across resize drag, move drag, and `_applyMoveDelta`. A one-liner constant eliminates all of them:
+
+```js
+const _f2 = v => parseFloat(v.toFixed(2));
+```
+
+All 8 call sites now read `_f2(y)`, `_f2(wp.y)`, `_f2(wp.y - worldStart.y)`, etc.
+
+### `_getSharedValue` batch helper (item 9)
+
+`_buildBatchHTML` was the only caller of its local `shared` closure. Promoting it to a named module-level function makes the intent explicit and removes it from the closure:
+
+```js
+function _getSharedValue(items, field) {
+  const vals=items.map(i=>i.data[field]); return vals.every(v=>v===vals[0])?vals[0]:null;
+}
+```
+
+The local binding inside `_buildBatchHTML` becomes a one-liner:
+```js
+const shared = field => _getSharedValue(items, field);
+```
+
+### Extracting `_handleResizeDrag` (item 11)
+
+The resize-handle dispatch in `_onMouseMove` was a 50-line, four-branch block covering the XZ top-view handles, the Y edge handles, the XY front-view corners, and the ZY side-view corners. Extracted to:
+
+```js
+function _handleResizeDrag(cx, cy, vp) {
+  const o=_dragHandle.obj, ht=_dragHandle.type;
+  if ([...XZ handles...].includes(ht)) { /* top-view */ rebuildLevel(); }
+  else if (['yMin','yMax'].includes(ht)) { /* y edges */ rebuildLevel(); }
+  else if ([...XY handles...].includes(ht)) { /* front-view */ rebuildLevel(); }
+  else if ([...ZY handles...].includes(ht)) { /* side-view */ rebuildLevel(); }
+}
+```
+
+`_onMouseMove` now opens with a single guarded call:
+
+```js
+if (_dragHandle && mouseButtons.left) { _handleResizeDrag(cx, cy, vp); return; }
+```
+
+The function shrinks from ~136 to ~85 lines, and the resize logic is independently readable.
 
