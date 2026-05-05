@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.4] - 2026-05-05
+### Fixed
+- **Brush Y snap snapped to tile midpoints (0.5, 1.5…) instead of whole units** — `_snapY` was delegating to `snapGrid` which applies the XZ tile-centre offset (`+0.5`). Y has no tile-centre concept; whole-unit snap is correct. Fixed `_snapY` to snap Y to whole units when tile or intersection snap is active, and to 0.5-unit steps when both are on.
+
+## [1.7.3] - 2026-05-05
+### Fixed
+- **Brush Y resize handles ignored snap settings** — all three Y resize paths (`yMin`/`yMax` edges, XY corners, ZY corners) used `_round2dp` unconditionally, giving free sub-unit movement regardless of snap. Added `_snapY(y, viewport)` helper; snap-off falls back to `_round2dp`.
+
 ## [1.7.2] - 2026-05-05
 ### Fixed
 - **Brush `zMin`/`zMax` edge handles did not work in the Side (ZY) view** — the first branch of `_handleResizeDrag` always called `topToWorld`, which returns `null` when the mouse is outside the top viewport, so side-view Z drags silently no-op'd. Fixed by routing `zMin`/`zMax` to `sideToWorld` when `viewport==='side'`, and `xMin`/`xMax` to `frontToWorld` when `viewport==='front'`. XZ corner handles remain top-only (they are not shown in other views).

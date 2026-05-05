@@ -32,6 +32,8 @@ A step-by-step record of every feature added to the game, with the most importan
 27. [Stage 27 — Brush/Room Data Format: position + scale (v1.7.0)](#stage-27)
 28. [Stage 28 — Fix Brush Resize Minimum Scale (v1.7.1)](#stage-28)
 29. [Stage 29 — Fix Side-View zMin/zMax Handle Drag (v1.7.2)](#stage-29)
+30. [Stage 30 — Fix Y Resize Snap (v1.7.3)](#stage-30)
+31. [Stage 31 — Fix Y Snap Midpoint Bug (v1.7.4)](#stage-31)
 
 ---
 
@@ -2052,3 +2054,82 @@ if (viewport==='side' && (handleType==='zMin'||handleType==='zMax')) {
 ```
 
 XZ corner handles (`xMinzMin`, etc.) are only shown in the top view per `_vpHandleAxes`, so they always hit the `else` branch correctly.
+
+---
+
+<a name="stage-30"></a>
+## Stage 30 — Fix Y Resize Snap (v1.7.3)
+
+### Goal
+
+Y resize handles (height) always moved freely regardless of the snap setting. They should snap to the same intervals as X/Z when tile or intersection snap is active.
+
+### Root cause
+
+All three Y resize paths used `_round2dp(y)` unconditionally:
+
+```js
+// yMin/yMax edge handles
+const snappedY = _round2dp(rawY);
+
+// XY corner handles (front view)
+const snappedX = snapGrid(worldPos.x, 'front'), snappedY = _round2dp(worldPos.y);
+
+// ZY corner handles (side view)
+const snappedZ = snapGrid(worldPos.z, 'side'), snappedY = _round2dp(worldPos.y);
+```
+
+`_round2dp` is a precision helper (2 decimal places), not snap. X/Z correctly called `snapGrid`; Y had no equivalent.
+
+### Fix
+
+Added `_snapY(y, viewport)` helper:
+
+```js
+function _snapY(y, viewport) {
+  const s = _vpSnap[viewport] || _vpSnap.top;
+  if (s.tile || s.intersection) return snapGrid(y, viewport);
+  return _round2dp(y);
+}
+```
+
+Replaced all three `_round2dp(rawY)` / `_round2dp(worldPos.y)` calls in `_handleResizeDrag` with `_snapY(y, viewport)`. When snap is off, behaviour is unchanged. When snap is on, Y snaps to the same intervals as X/Z: tile centres (0.5, 1.5, ...), intersections (0, 1, 2, ...), or 0.5-unit steps when both are active.
+
+---
+
+<a name="stage-31"></a>
+## Stage 31 — Fix Y Snap Midpoint Bug (v1.7.4)
+
+### Goal
+
+Y resize snap was landing on 0.5, 1.5, 2.5… instead of whole units (0, 1, 2…).
+
+### Root cause
+
+`_snapY` delegated to `snapGrid`, which applies the XZ tile-centre formula:
+
+```js
+(Math.round(coord / TILE_SIZE - 0.5) + 0.5) * TILE_SIZE
+```
+
+For XZ this is correct — tiles are centred at 0.5, 1.5, … so the `+0.5` offset makes sense. Y has no such offset; brushes start at Y=0, not Y=0.5. Passing Y through the same formula produced the 0.5 midpoint snap the user observed.
+
+### Fix
+
+`_snapY` now does its own Y-appropriate arithmetic instead of delegating to `snapGrid`:
+
+```js
+function _snapY(y, viewport) {
+  const s = _vpSnap[viewport] || _vpSnap.top;
+  if (s.tile && s.intersection) return Math.round(y * 2) / 2;  // 0.5 steps
+  if (s.tile || s.intersection) return Math.round(y);           // whole units
+  return _round2dp(y);
+}
+```
+
+| Snap mode | Y result |
+|---|---|
+| tile only | whole units (0, 1, 2…) |
+| intersection only | whole units (0, 1, 2…) |
+| both | 0.5 steps (0, 0.5, 1…) |
+| neither | free (2 dp) |

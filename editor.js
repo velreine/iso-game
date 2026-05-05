@@ -27,6 +27,13 @@ function snapGrid(coord, viewport = 'top') {
   if (s.intersection)           return Math.round(coord / TILE_SIZE) * TILE_SIZE;
   return coord;
 }
+// Y snap: Y has no tile-centre offset, so snap to 0.5 steps (both modes) or whole units (one mode).
+function _snapY(y, viewport) {
+  const s = _vpSnap[viewport] || _vpSnap.top;
+  if (s.tile && s.intersection) return Math.round(y * 2) / 2;
+  if (s.tile || s.intersection) return Math.round(y);
+  return _round2dp(y);
+}
 const TILE_THICKNESS = 0.22;
 const TILE_GAP       = 0.06;
 const STEP_H         = 0.3;
@@ -1111,7 +1118,7 @@ function _handleResizeDrag(mouseX, mouseY, viewport) {
     _setStatus(`${obj.id}: x[${bb.xMin}→${bb.xMax}]  z[${bb.zMin}→${bb.zMax}]`);
   } else if (['yMin','yMax'].includes(handleType)) {
     const rawY=_worldYFromView(mouseX,mouseY,viewport); if (rawY===null) return;
-    const snappedY=_round2dp(rawY);
+    const snappedY=_snapY(rawY,viewport);
     const bb=_bBox(obj);
     if (handleType==='yMin') bb.yMin=Math.min(snappedY,bb.yMax-0.1);
     else                     bb.yMax=Math.max(snappedY,bb.yMin+0.1);
@@ -1119,7 +1126,7 @@ function _handleResizeDrag(mouseX, mouseY, viewport) {
     _setStatus(`${obj.id}: y[${bb.yMin}→${bb.yMax}]`);
   } else if (['xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'].includes(handleType)) {
     const worldPos=frontToWorld(mouseX,mouseY); if (!worldPos) return;
-    const snappedX=snapGrid(worldPos.x,'front'), snappedY=_round2dp(worldPos.y);
+    const snappedX=snapGrid(worldPos.x,'front'), snappedY=_snapY(worldPos.y,'front');
     const bb=_bBox(obj);
     switch (handleType) {
       case 'xMinyMin': bb.xMin=Math.min(snappedX,bb.xMax); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
@@ -1131,7 +1138,7 @@ function _handleResizeDrag(mouseX, mouseY, viewport) {
     _setStatus(`${obj.id}: x[${bb.xMin}→${bb.xMax}]  y[${bb.yMin}→${bb.yMax}]`);
   } else if (['zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'].includes(handleType)) {
     const worldPos=sideToWorld(mouseX,mouseY); if (!worldPos) return;
-    const snappedZ=snapGrid(worldPos.z,'side'), snappedY=_round2dp(worldPos.y);
+    const snappedZ=snapGrid(worldPos.z,'side'), snappedY=_snapY(worldPos.y,'side');
     const bb=_bBox(obj);
     switch (handleType) {
       case 'zMinyMin': bb.zMin=Math.min(snappedZ,bb.zMax); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
