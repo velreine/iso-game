@@ -85,6 +85,22 @@ function _getEntityByKind(kind, id) {
   if (kind==='nav')        return ES.navMesh.find(c=>c.id===id)||null;
   return null;
 }
+function _bBox(obj) {
+  const p = obj.position, s = obj.scale;
+  return {
+    xMin: p.x - (s.x - 1) / 2, xMax: p.x + (s.x - 1) / 2,
+    zMin: p.z - (s.z - 1) / 2, zMax: p.z + (s.z - 1) / 2,
+    yMin: p.y - s.y / 2,        yMax: p.y + s.y / 2,
+  };
+}
+function _setFromBBox(obj, xMin, xMax, yMin, yMax, zMin, zMax) {
+  obj.scale.x  = xMax - xMin + 1;
+  obj.scale.z  = zMax - zMin + 1;
+  obj.scale.y  = yMax - yMin;
+  obj.position.x = (xMin + xMax) / 2;
+  obj.position.y = (yMin + yMax) / 2;
+  obj.position.z = (zMin + zMax) / 2;
+}
 function _bindNumField(id, obj, field, afterChange=null, asInteger=false) {
   const el=document.getElementById(id); if(!el) return;
   el.addEventListener('change', () => { obj[field]=asInteger?parseInt(el.value):parseFloat(el.value); afterChange?.(); });
@@ -386,7 +402,8 @@ function _floorTile(x, z, elevation, color, roomId, targetArray) {
 
 function _buildRoom(room) {
   const elev=room.elevation||0;
-  for (let x=room.xMin;x<=room.xMax;x++) for (let z=room.zMin;z<=room.zMax;z++) {
+  const {xMin,xMax,zMin,zMax}=_bBox(room);
+  for (let x=xMin;x<=xMax;x++) for (let z=zMin;z<=zMax;z++) {
     const isLava=room.lavaCoords?.some(([lx,lz])=>lx===x&&lz===z);
     const pal=isLava?(room.lavaPalette||[0xff3300]):(room.palette||[0x505050]);
     _floorTile(x,z,elev,_rand(pal),room.id);
@@ -395,11 +412,12 @@ function _buildRoom(room) {
 
 function _buildRampRoom(room) {
   const axis=room.elevationAxis||'x';
-  const steps=axis==='z'?room.zMax-room.zMin+1:room.xMax-room.xMin+1;
+  const {xMin,xMax,zMin,zMax}=_bBox(room);
+  const steps=axis==='z'?zMax-zMin+1:xMax-xMin+1;
   for (let s=0;s<steps;s++) {
     const elev=(room.elevationStart||STEP_H)+STEP_H*s;
-    const x0=axis==='z'?room.xMin:room.xMin+s, x1=axis==='z'?room.xMax:x0;
-    const z0=axis==='z'?room.zMin+s:room.zMin, z1=axis==='z'?z0:room.zMax;
+    const x0=axis==='z'?xMin:xMin+s, x1=axis==='z'?xMax:x0;
+    const z0=axis==='z'?zMin+s:zMin, z1=axis==='z'?z0:zMax;
     for (let x=x0;x<=x1;x++) for (let z=z0;z<=z1;z++)
       _floorTile(x,z,elev,_rand(room.palette||[0x707058]),room.id);
   }
@@ -437,7 +455,7 @@ function _buildWalls() {
     const elev=cell.elevation||0;
     DIRS.forEach(d=>{
       if (tmGet(x+d.dx,z+d.dz)!==undefined) return;
-      const room=ES.rooms.find(r=>r.type!=='ramp'&&x>=r.xMin&&x<=r.xMax&&z>=r.zMin&&z<=r.zMax);
+      const room=ES.rooms.find(r=>{if(r.type==='ramp')return false;const b=_bBox(r);return x>=b.xMin&&x<=b.xMax&&z>=b.zMin&&z<=b.zMax;});
       const wc=room?(room.doorColor||room.palette?.[0]||0x505050):0x505050;
       const mesh=new THREE.Mesh(new THREE.BoxGeometry(TILE_SIZE-TILE_GAP,WALL_HEIGHT,WALL_THICK),_mat(wc));
       mesh.position.set(x+d.px,elev+WALL_Y,z+d.pz);
@@ -457,11 +475,10 @@ function _buildDecorMesh(def) {
 }
 
 function _buildBrushMesh(brush) {
-  // Tile-indexed: brush visually spans (xMin-0.5, yMin, zMin-0.5) to (xMax+0.5, yMax, zMax+0.5)
-  const w=(brush.xMax-brush.xMin)+1, h=brush.yMax-brush.yMin, d=(brush.zMax-brush.zMin)+1;
+  const w=brush.scale.x, h=brush.scale.y, d=brush.scale.z;
   if (h<=0) return;
   const geo=new THREE.BoxGeometry(w,h,d);
-  const pos=new THREE.Vector3((brush.xMin+brush.xMax)/2,(brush.yMin+brush.yMax)/2,(brush.zMin+brush.zMax)/2);
+  const pos=new THREE.Vector3(brush.position.x, brush.position.y, brush.position.z);
 
   if (brush.brushClass==='trigger') {
     // Trigger zones: semi-transparent fill + edge outline (editor-only, invisible in game)
@@ -511,21 +528,23 @@ function _compileNavMesh(mode='override') {
   // Brushes — walkable, use yMax as walking surface
   ES.brushes.forEach(b=>{
     if(!b.walkable || b.brushClass==='trigger') return;
-    for(let x=b.xMin;x<=b.xMax;x++) for(let z=b.zMin;z<=b.zMax;z++) stamp(x,z,b.yMax);
+    const {xMin,xMax,zMin,zMax,yMax}=_bBox(b);
+    for(let x=xMin;x<=xMax;x++) for(let z=zMin;z<=zMax;z++) stamp(x,z,yMax);
   });
 
   // Rooms — handle ramps with per-step elevation
   ES.rooms.forEach(r=>{
+    const {xMin:rxMin,xMax:rxMax,zMin:rzMin,zMax:rzMax}=_bBox(r);
     if(r.type==='ramp'){
       const axis=r.elevationAxis||'x';
-      const steps=axis==='z'?r.zMax-r.zMin+1:r.xMax-r.xMin+1;
+      const steps=axis==='z'?rzMax-rzMin+1:rxMax-rxMin+1;
       for(let s=0;s<steps;s++){
         const elev=(r.elevationStart||SH)+SH*s;
-        if(axis==='z'){ for(let x=r.xMin;x<=r.xMax;x++) stamp(x,r.zMin+s,elev); }
-        else           { for(let z=r.zMin;z<=r.zMax;z++) stamp(r.xMin+s,z,elev); }
+        if(axis==='z'){ for(let x=rxMin;x<=rxMax;x++) stamp(x,rzMin+s,elev); }
+        else           { for(let z=rzMin;z<=rzMax;z++) stamp(rxMin+s,z,elev); }
       }
     } else {
-      for(let x=r.xMin;x<=r.xMax;x++) for(let z=r.zMin;z<=r.zMax;z++) stamp(x,z,r.elevation||0);
+      for(let x=rxMin;x<=rxMax;x++) for(let z=rzMin;z<=rzMax;z++) stamp(x,z,r.elevation||0);
     }
   });
 
@@ -686,7 +705,8 @@ function _findMeshById(kind, id) {
 function _updateRoomBoundsBox(roomId) {
   const room=ES.rooms.find(r=>r.id===roomId);
   if (!room) { roomBoundsBox.visible=false; return; }
-  const x0=room.xMin-0.5,x1=room.xMax+0.5,z0=room.zMin-0.5,z1=room.zMax+0.5;
+  const {xMin,xMax,zMin,zMax}=_bBox(room);
+  const x0=xMin-0.5,x1=xMax+0.5,z0=zMin-0.5,z1=zMax+0.5;
   const elevation=room.elevation||0, boundsHeight=WALL_HEIGHT+elevation+0.05;
   roomBoundsBox.position.set((x0+x1)/2,boundsHeight/2,(z0+z1)/2);
   roomBoundsBox.scale.set(x1-x0,boundsHeight,z1-z0);
@@ -701,41 +721,43 @@ function _updateHandles(id, kind) {
     const room=ES.rooms.find(r=>r.id===id);
     if (!room) { handlesGroup.visible=false; return; }
     handlesGroup.visible=true;
-    const elev=(room.elevation||0)+0.4, mx=(room.xMin+room.xMax)/2, mz=(room.zMin+room.zMax)/2;
-    handleMeshes.xMin.position.set(room.xMin-0.5,elev,mz);
-    handleMeshes.xMax.position.set(room.xMax+0.5,elev,mz);
-    handleMeshes.zMin.position.set(mx,elev,room.zMin-0.5);
-    handleMeshes.zMax.position.set(mx,elev,room.zMax+0.5);
-    handleMeshes.xMinzMin.position.set(room.xMin-0.5,elev,room.zMin-0.5); handleMeshes.xMinzMin.visible=true;
-    handleMeshes.xMinzMax.position.set(room.xMin-0.5,elev,room.zMax+0.5); handleMeshes.xMinzMax.visible=true;
-    handleMeshes.xMaxzMin.position.set(room.xMax+0.5,elev,room.zMin-0.5); handleMeshes.xMaxzMin.visible=true;
-    handleMeshes.xMaxzMax.position.set(room.xMax+0.5,elev,room.zMax+0.5); handleMeshes.xMaxzMax.visible=true;
+    const {xMin:rxMin,xMax:rxMax,zMin:rzMin,zMax:rzMax}=_bBox(room);
+    const elev=(room.elevation||0)+0.4, mx=room.position.x, mz=room.position.z;
+    handleMeshes.xMin.position.set(rxMin-0.5,elev,mz);
+    handleMeshes.xMax.position.set(rxMax+0.5,elev,mz);
+    handleMeshes.zMin.position.set(mx,elev,rzMin-0.5);
+    handleMeshes.zMax.position.set(mx,elev,rzMax+0.5);
+    handleMeshes.xMinzMin.position.set(rxMin-0.5,elev,rzMin-0.5); handleMeshes.xMinzMin.visible=true;
+    handleMeshes.xMinzMax.position.set(rxMin-0.5,elev,rzMax+0.5); handleMeshes.xMinzMax.visible=true;
+    handleMeshes.xMaxzMin.position.set(rxMax+0.5,elev,rzMin-0.5); handleMeshes.xMaxzMin.visible=true;
+    handleMeshes.xMaxzMax.position.set(rxMax+0.5,elev,rzMax+0.5); handleMeshes.xMaxzMax.visible=true;
   } else if (kind === 'brush') {
     const b=ES.brushes.find(b=>b.id===id);
     if (!b) { handlesGroup.visible=false; return; }
     handlesGroup.visible=true;
-    const mx=(b.xMin+b.xMax)/2, mz=(b.zMin+b.zMax)/2, my=(b.yMin+b.yMax)/2;
-    handleMeshes.xMin.position.set(b.xMin-0.5,my,mz);
-    handleMeshes.xMax.position.set(b.xMax+0.5,my,mz);
-    handleMeshes.zMin.position.set(mx,my,b.zMin-0.5);
-    handleMeshes.zMax.position.set(mx,my,b.zMax+0.5);
-    handleMeshes.yMin.position.set(mx,b.yMin,mz); handleMeshes.yMin.visible=true;
-    handleMeshes.yMax.position.set(mx,b.yMax,mz); handleMeshes.yMax.visible=true;
+    const {xMin,xMax,yMin,yMax,zMin,zMax}=_bBox(b);
+    const mx=b.position.x, mz=b.position.z, my=b.position.y;
+    handleMeshes.xMin.position.set(xMin-0.5,my,mz);
+    handleMeshes.xMax.position.set(xMax+0.5,my,mz);
+    handleMeshes.zMin.position.set(mx,my,zMin-0.5);
+    handleMeshes.zMax.position.set(mx,my,zMax+0.5);
+    handleMeshes.yMin.position.set(mx,yMin,mz); handleMeshes.yMin.visible=true;
+    handleMeshes.yMax.position.set(mx,yMax,mz); handleMeshes.yMax.visible=true;
     // XZ corners (Top view)
-    handleMeshes.xMinzMin.position.set(b.xMin-0.5,my,b.zMin-0.5); handleMeshes.xMinzMin.visible=true;
-    handleMeshes.xMinzMax.position.set(b.xMin-0.5,my,b.zMax+0.5); handleMeshes.xMinzMax.visible=true;
-    handleMeshes.xMaxzMin.position.set(b.xMax+0.5,my,b.zMin-0.5); handleMeshes.xMaxzMin.visible=true;
-    handleMeshes.xMaxzMax.position.set(b.xMax+0.5,my,b.zMax+0.5); handleMeshes.xMaxzMax.visible=true;
+    handleMeshes.xMinzMin.position.set(xMin-0.5,my,zMin-0.5); handleMeshes.xMinzMin.visible=true;
+    handleMeshes.xMinzMax.position.set(xMin-0.5,my,zMax+0.5); handleMeshes.xMinzMax.visible=true;
+    handleMeshes.xMaxzMin.position.set(xMax+0.5,my,zMin-0.5); handleMeshes.xMaxzMin.visible=true;
+    handleMeshes.xMaxzMax.position.set(xMax+0.5,my,zMax+0.5); handleMeshes.xMaxzMax.visible=true;
     // XY corners (Front view)
-    handleMeshes.xMinyMin.position.set(b.xMin-0.5,b.yMin,mz); handleMeshes.xMinyMin.visible=true;
-    handleMeshes.xMinyMax.position.set(b.xMin-0.5,b.yMax,mz); handleMeshes.xMinyMax.visible=true;
-    handleMeshes.xMaxyMin.position.set(b.xMax+0.5,b.yMin,mz); handleMeshes.xMaxyMin.visible=true;
-    handleMeshes.xMaxyMax.position.set(b.xMax+0.5,b.yMax,mz); handleMeshes.xMaxyMax.visible=true;
+    handleMeshes.xMinyMin.position.set(xMin-0.5,yMin,mz); handleMeshes.xMinyMin.visible=true;
+    handleMeshes.xMinyMax.position.set(xMin-0.5,yMax,mz); handleMeshes.xMinyMax.visible=true;
+    handleMeshes.xMaxyMin.position.set(xMax+0.5,yMin,mz); handleMeshes.xMaxyMin.visible=true;
+    handleMeshes.xMaxyMax.position.set(xMax+0.5,yMax,mz); handleMeshes.xMaxyMax.visible=true;
     // ZY corners (Side view)
-    handleMeshes.zMinyMin.position.set(mx,b.yMin,b.zMin-0.5); handleMeshes.zMinyMin.visible=true;
-    handleMeshes.zMinyMax.position.set(mx,b.yMax,b.zMin-0.5); handleMeshes.zMinyMax.visible=true;
-    handleMeshes.zMaxyMin.position.set(mx,b.yMin,b.zMax+0.5); handleMeshes.zMaxyMin.visible=true;
-    handleMeshes.zMaxyMax.position.set(mx,b.yMax,b.zMax+0.5); handleMeshes.zMaxyMax.visible=true;
+    handleMeshes.zMinyMin.position.set(mx,yMin,zMin-0.5); handleMeshes.zMinyMin.visible=true;
+    handleMeshes.zMinyMax.position.set(mx,yMax,zMin-0.5); handleMeshes.zMinyMax.visible=true;
+    handleMeshes.zMaxyMin.position.set(mx,yMin,zMax+0.5); handleMeshes.zMaxyMin.visible=true;
+    handleMeshes.zMaxyMax.position.set(mx,yMax,zMax+0.5); handleMeshes.zMaxyMax.visible=true;
   } else {
     handlesGroup.visible=false;
   }
@@ -1060,43 +1082,51 @@ function _handleResizeDrag(mouseX, mouseY, viewport) {
   if (['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'].includes(handleType)) {
     const worldPos=topToWorld(mouseX,mouseY); if (!worldPos) return;
     const snappedX=snapGrid(worldPos.x,'top'), snappedZ=snapGrid(worldPos.z,'top');
+    const bb=_bBox(obj);
     switch (handleType) {
-      case 'xMin':     obj.xMin=Math.min(snappedX,obj.xMax-1); break;
-      case 'xMax':     obj.xMax=Math.max(snappedX,obj.xMin+1); break;
-      case 'zMin':     obj.zMin=Math.min(snappedZ,obj.zMax-1); break;
-      case 'zMax':     obj.zMax=Math.max(snappedZ,obj.zMin+1); break;
-      case 'xMinzMin': obj.xMin=Math.min(snappedX,obj.xMax-1); obj.zMin=Math.min(snappedZ,obj.zMax-1); break;
-      case 'xMinzMax': obj.xMin=Math.min(snappedX,obj.xMax-1); obj.zMax=Math.max(snappedZ,obj.zMin+1); break;
-      case 'xMaxzMin': obj.xMax=Math.max(snappedX,obj.xMin+1); obj.zMin=Math.min(snappedZ,obj.zMax-1); break;
-      case 'xMaxzMax': obj.xMax=Math.max(snappedX,obj.xMin+1); obj.zMax=Math.max(snappedZ,obj.zMin+1); break;
+      case 'xMin':     bb.xMin=Math.min(snappedX,bb.xMax-1); break;
+      case 'xMax':     bb.xMax=Math.max(snappedX,bb.xMin+1); break;
+      case 'zMin':     bb.zMin=Math.min(snappedZ,bb.zMax-1); break;
+      case 'zMax':     bb.zMax=Math.max(snappedZ,bb.zMin+1); break;
+      case 'xMinzMin': bb.xMin=Math.min(snappedX,bb.xMax-1); bb.zMin=Math.min(snappedZ,bb.zMax-1); break;
+      case 'xMinzMax': bb.xMin=Math.min(snappedX,bb.xMax-1); bb.zMax=Math.max(snappedZ,bb.zMin+1); break;
+      case 'xMaxzMin': bb.xMax=Math.max(snappedX,bb.xMin+1); bb.zMin=Math.min(snappedZ,bb.zMax-1); break;
+      case 'xMaxzMax': bb.xMax=Math.max(snappedX,bb.xMin+1); bb.zMax=Math.max(snappedZ,bb.zMin+1); break;
     }
-    _setStatus(`${obj.id}: x[${obj.xMin}→${obj.xMax}]  z[${obj.zMin}→${obj.zMax}]`);
+    _setFromBBox(obj,bb.xMin,bb.xMax,bb.yMin,bb.yMax,bb.zMin,bb.zMax);
+    _setStatus(`${obj.id}: x[${bb.xMin}→${bb.xMax}]  z[${bb.zMin}→${bb.zMax}]`);
   } else if (['yMin','yMax'].includes(handleType)) {
     const rawY=_worldYFromView(mouseX,mouseY,viewport); if (rawY===null) return;
     const snappedY=_round2dp(rawY);
-    if (handleType==='yMin') obj.yMin=Math.min(snappedY,obj.yMax-0.1);
-    else                     obj.yMax=Math.max(snappedY,obj.yMin+0.1);
-    _setStatus(`${obj.id}: y[${obj.yMin}→${obj.yMax}]`);
+    const bb=_bBox(obj);
+    if (handleType==='yMin') bb.yMin=Math.min(snappedY,bb.yMax-0.1);
+    else                     bb.yMax=Math.max(snappedY,bb.yMin+0.1);
+    _setFromBBox(obj,bb.xMin,bb.xMax,bb.yMin,bb.yMax,bb.zMin,bb.zMax);
+    _setStatus(`${obj.id}: y[${bb.yMin}→${bb.yMax}]`);
   } else if (['xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'].includes(handleType)) {
     const worldPos=frontToWorld(mouseX,mouseY); if (!worldPos) return;
     const snappedX=snapGrid(worldPos.x,'front'), snappedY=_round2dp(worldPos.y);
+    const bb=_bBox(obj);
     switch (handleType) {
-      case 'xMinyMin': obj.xMin=Math.min(snappedX,obj.xMax-1); obj.yMin=Math.min(snappedY,obj.yMax-0.1); break;
-      case 'xMinyMax': obj.xMin=Math.min(snappedX,obj.xMax-1); obj.yMax=Math.max(snappedY,obj.yMin+0.1); break;
-      case 'xMaxyMin': obj.xMax=Math.max(snappedX,obj.xMin+1); obj.yMin=Math.min(snappedY,obj.yMax-0.1); break;
-      case 'xMaxyMax': obj.xMax=Math.max(snappedX,obj.xMin+1); obj.yMax=Math.max(snappedY,obj.yMin+0.1); break;
+      case 'xMinyMin': bb.xMin=Math.min(snappedX,bb.xMax-1); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
+      case 'xMinyMax': bb.xMin=Math.min(snappedX,bb.xMax-1); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
+      case 'xMaxyMin': bb.xMax=Math.max(snappedX,bb.xMin+1); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
+      case 'xMaxyMax': bb.xMax=Math.max(snappedX,bb.xMin+1); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
     }
-    _setStatus(`${obj.id}: x[${obj.xMin}→${obj.xMax}]  y[${obj.yMin}→${obj.yMax}]`);
+    _setFromBBox(obj,bb.xMin,bb.xMax,bb.yMin,bb.yMax,bb.zMin,bb.zMax);
+    _setStatus(`${obj.id}: x[${bb.xMin}→${bb.xMax}]  y[${bb.yMin}→${bb.yMax}]`);
   } else if (['zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'].includes(handleType)) {
     const worldPos=sideToWorld(mouseX,mouseY); if (!worldPos) return;
     const snappedZ=snapGrid(worldPos.z,'side'), snappedY=_round2dp(worldPos.y);
+    const bb=_bBox(obj);
     switch (handleType) {
-      case 'zMinyMin': obj.zMin=Math.min(snappedZ,obj.zMax-1); obj.yMin=Math.min(snappedY,obj.yMax-0.1); break;
-      case 'zMinyMax': obj.zMin=Math.min(snappedZ,obj.zMax-1); obj.yMax=Math.max(snappedY,obj.yMin+0.1); break;
-      case 'zMaxyMin': obj.zMax=Math.max(snappedZ,obj.zMin+1); obj.yMin=Math.min(snappedY,obj.yMax-0.1); break;
-      case 'zMaxyMax': obj.zMax=Math.max(snappedZ,obj.zMin+1); obj.yMax=Math.max(snappedY,obj.yMin+0.1); break;
+      case 'zMinyMin': bb.zMin=Math.min(snappedZ,bb.zMax-1); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
+      case 'zMinyMax': bb.zMin=Math.min(snappedZ,bb.zMax-1); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
+      case 'zMaxyMin': bb.zMax=Math.max(snappedZ,bb.zMin+1); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
+      case 'zMaxyMax': bb.zMax=Math.max(snappedZ,bb.zMin+1); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
     }
-    _setStatus(`${obj.id}: z[${obj.zMin}→${obj.zMax}]  y[${obj.yMin}→${obj.yMax}]`);
+    _setFromBBox(obj,bb.xMin,bb.xMax,bb.yMin,bb.yMax,bb.zMin,bb.zMax);
+    _setStatus(`${obj.id}: z[${bb.zMin}→${bb.zMax}]  y[${bb.yMin}→${bb.yMax}]`);
   }
   rebuildLevel();
 }
@@ -1197,8 +1227,8 @@ function _startMoveDrag(worldPos, viewport) {
     origStates: ES.selection.map(s => {
       const ent=_getEntityByKind(s.kind,s.id);
       if (!ent) return {...s, orig:null};
-      if (s.kind==='room')       return {...s, orig:{xMin:ent.xMin,xMax:ent.xMax,zMin:ent.zMin,zMax:ent.zMax,yMin:0,yMax:0}};
-      if (s.kind==='brush')      return {...s, orig:{xMin:ent.xMin,xMax:ent.xMax,zMin:ent.zMin,zMax:ent.zMax,yMin:ent.yMin,yMax:ent.yMax}};
+      if (s.kind==='room')       return {...s, orig:{px:ent.position.x,py:ent.position.y,pz:ent.position.z}};
+      if (s.kind==='brush')      return {...s, orig:{px:ent.position.x,py:ent.position.y,pz:ent.position.z}};
       if (s.kind==='entity')     return {...s, orig:{x:ent.x,z:ent.z,y:ent.y??0}};
       if (s.kind==='standalone'||s.kind==='nav') return {...s, orig:{x:ent.x,z:ent.z,y:0}};
       return {...s, orig:null};
@@ -1212,10 +1242,9 @@ function _applyMoveDelta(deltaX, deltaZ, deltaY=0) {
   _dragMove.origStates.forEach(s => {
     if (!s.orig) return;
     const ent=_getEntityByKind(s.kind,s.id); if(!ent) return;
-    if (s.kind==='room')       { ent.xMin=s.orig.xMin+deltaX; ent.xMax=s.orig.xMax+deltaX; ent.zMin=s.orig.zMin+deltaZ; ent.zMax=s.orig.zMax+deltaZ; }
+    if (s.kind==='room')       { ent.position.x=_round2dp(s.orig.px+deltaX); ent.position.z=_round2dp(s.orig.pz+deltaZ); }
     else if (s.kind==='standalone'||s.kind==='nav') { ent.x=s.orig.x+deltaX; ent.z=s.orig.z+deltaZ; }
-    else if (s.kind==='brush') { ent.xMin=s.orig.xMin+deltaX; ent.xMax=s.orig.xMax+deltaX; ent.zMin=s.orig.zMin+deltaZ; ent.zMax=s.orig.zMax+deltaZ;
-                                 ent.yMin=_round2dp(s.orig.yMin+deltaY); ent.yMax=_round2dp(s.orig.yMax+deltaY); }
+    else if (s.kind==='brush') { ent.position.x=_round2dp(s.orig.px+deltaX); ent.position.y=_round2dp(s.orig.py+deltaY); ent.position.z=_round2dp(s.orig.pz+deltaZ); }
     else if (s.kind==='entity') { ent.x=s.orig.x+deltaX; ent.z=s.orig.z+deltaZ; ent.y=_round2dp(s.orig.y+deltaY); }
   });
   rebuildLevel();
@@ -1253,12 +1282,11 @@ function _finishMarquee(cssStart, cssEnd, viewport, additive) {
   const push = (kind,id) => { if(!newSel.some(s=>s.kind===kind&&s.id===id)) newSel.push({kind,id}); };
 
   ES.rooms.forEach(room => {
-    const cx=(room.xMin+room.xMax)/2, cz=(room.zMin+room.zMax)/2, elev=room.elevation||0;
-    if (inMarquee(cx,elev,cz)) push('room',room.id);
+    if (inMarquee(room.position.x, room.elevation||0, room.position.z)) push('room',room.id);
   });
   ES.standaloneTiles.forEach(t => { if(inMarquee(t.x,t.elevation||0,t.z)) push('standalone',t.id); });
   ES.elevatedTiles.forEach(et => { if(inMarquee(et.x,et.elevation,et.z)) push('elevated',et.id); });
-  ES.brushes.forEach(b => { const cx=(b.xMin+b.xMax)/2, cy=(b.yMin+b.yMax)/2, cz=(b.zMin+b.zMax)/2; if(inMarquee(cx,cy,cz)) push('brush',b.id); });
+  ES.brushes.forEach(b => { if(inMarquee(b.position.x,b.position.y,b.position.z)) push('brush',b.id); });
   ES.entities.forEach(e => { if(inMarquee(e.x, e.y??0.5, e.z)) push('entity',e.id); });
   ES.navMesh.forEach(c => { if(inMarquee(c.x, c.elevation??0, c.z)) push('nav',c.id); });
 
@@ -1273,9 +1301,9 @@ function _moveSelection(deltaX, deltaZ, deltaY=0) {
   _pushUndo();
   ES.selection.forEach(s => {
     const ent=_getEntityByKind(s.kind,s.id); if(!ent) return;
-    if (s.kind==='room')       { ent.xMin+=deltaX; ent.xMax+=deltaX; ent.zMin+=deltaZ; ent.zMax+=deltaZ; }
+    if (s.kind==='room')       { ent.position.x+=deltaX; ent.position.z+=deltaZ; }
     else if (s.kind==='standalone'||s.kind==='nav') { ent.x+=deltaX; ent.z+=deltaZ; }
-    else if (s.kind==='brush') { ent.xMin+=deltaX; ent.xMax+=deltaX; ent.zMin+=deltaZ; ent.zMax+=deltaZ; ent.yMin+=deltaY; ent.yMax+=deltaY; }
+    else if (s.kind==='brush') { ent.position.x+=deltaX; ent.position.y+=deltaY; ent.position.z+=deltaZ; }
     else if (s.kind==='entity') { ent.x+=deltaX; ent.z+=deltaZ; ent.y=(ent.y??0)+deltaY; }
   });
   rebuildLevel();
@@ -1288,9 +1316,9 @@ function _duplicateSelection() {
   ES.selection.forEach(s => {
     const orig=_getEntityByKind(s.kind,s.id); if(!orig) return;
     const copy=JSON.parse(JSON.stringify(orig));
-    if (s.kind==='room')       { copy.id=_nextId('room');   copy.xMin+=2; copy.xMax+=2; ES.rooms.push(copy);          newSel.push({kind:'room',id:copy.id}); }
-    else if (s.kind==='standalone') { copy.id=_nextId('tile');   copy.x+=1;             ES.standaloneTiles.push(copy); newSel.push({kind:'standalone',id:copy.id}); }
-    else if (s.kind==='brush') { copy.id=_nextId('brush');  copy.xMin+=2; copy.xMax+=2; ES.brushes.push(copy);        newSel.push({kind:'brush',id:copy.id}); }
+    if (s.kind==='room')       { copy.id=_nextId('room');   copy.position.x+=2; ES.rooms.push(copy);          newSel.push({kind:'room',id:copy.id}); }
+    else if (s.kind==='standalone') { copy.id=_nextId('tile');   copy.x+=1;  ES.standaloneTiles.push(copy); newSel.push({kind:'standalone',id:copy.id}); }
+    else if (s.kind==='brush') { copy.id=_nextId('brush');  copy.position.x+=2; ES.brushes.push(copy);        newSel.push({kind:'brush',id:copy.id}); }
     else if (s.kind==='entity'){ copy.id=_nextId('entity'); copy.x+=2;                 ES.entities.push(copy);        newSel.push({kind:'entity',id:copy.id}); }
     else if (s.kind==='nav')   { copy.id=_nextId('nav');    copy.x+=1;                 ES.navMesh.push(copy);         newSel.push({kind:'nav',id:copy.id}); }
   });
@@ -1633,8 +1661,8 @@ function _showProps(kind, data) {
   let html='';
   if(kind==='room') html=`<div class="prop-heading">Room</div>
     ${_tr('ID','pr-id',data.id)}
-    ${_tn('xMin','pr-xmin',data.xMin)}${_tn('xMax','pr-xmax',data.xMax)}
-    ${_tn('zMin','pr-zmin',data.zMin)}${_tn('zMax','pr-zmax',data.zMax)}
+    ${_tn('Pos X','pr-px',data.position.x)}${_tn('Pos Z','pr-pz',data.position.z)}
+    ${_tn('Scale X','pr-sx',data.scale.x)}${_tn('Scale Z','pr-sz',data.scale.z)}
     ${_tn('Elevation','pr-elev',data.elevation||0,0.3)}
     ${_palRows(data)}`;
   else if(kind==='elevated') html=`<div class="prop-heading">Elevated Tile</div>
@@ -1666,7 +1694,7 @@ function _palRows(room) {
 }
 function _bindProps(kind,data) {
   const b=(id,field,num,col)=>{ const el=document.getElementById(id); if(!el) return; el.addEventListener('change',()=>{ let v=el.value; if(col) v=parseInt(v.replace('#',''),16); else if(num) v=parseFloat(v); data[field]=v; rebuildLevel(); if(kind==='room'){_updateRoomBoundsBox(data.id);_updateHandles(data.id);} }); };
-  if(kind==='room')            { b('pr-id','id'); b('pr-xmin','xMin',true); b('pr-xmax','xMax',true); b('pr-zmin','zMin',true); b('pr-zmax','zMax',true); b('pr-elev','elevation',true); document.getElementById('pp-pal')?.querySelectorAll('.swatch-del').forEach(d=>d.addEventListener('click',e=>{e.stopPropagation();data.palette.splice(+d.parentElement.dataset.idx,1);rebuildLevel();_showProps('room',data);})); document.getElementById('pp-add')?.addEventListener('click',()=>{data.palette.push(DEFAULT_FACE_COLOR);rebuildLevel();_showProps('room',data);}); }
+  if(kind==='room')            { b('pr-id','id'); const afterRoom=()=>{ rebuildLevel(); _updateRoomBoundsBox(data.id); _updateHandles(data.id,'room'); }; _bindNumField('pr-px',data.position,'x',afterRoom); _bindNumField('pr-pz',data.position,'z',afterRoom); _bindNumField('pr-sx',data.scale,'x',afterRoom,true); _bindNumField('pr-sz',data.scale,'z',afterRoom,true); b('pr-elev','elevation',true); document.getElementById('pp-pal')?.querySelectorAll('.swatch-del').forEach(d=>d.addEventListener('click',e=>{e.stopPropagation();data.palette.splice(+d.parentElement.dataset.idx,1);rebuildLevel();_showProps('room',data);})); document.getElementById('pp-add')?.addEventListener('click',()=>{data.palette.push(DEFAULT_FACE_COLOR);rebuildLevel();_showProps('room',data);}); }
   else if(kind==='elevated')   { b('pe-elev','elevation',true); b('pe-type','type'); }
   else if(kind==='standalone') { b('ps-x','x',true); b('ps-z','z',true); b('ps-elev','elevation',true); b('ps-color','color',false,true); }
 }
@@ -2007,7 +2035,7 @@ const _nextId=pfx=>`${pfx}_${++_idCtr}`;
 function _toggleLava(mouseX,mouseY) {
   const worldPos=topToWorld(mouseX,mouseY); if(!worldPos) return;
   const tx=Math.round(worldPos.x),tz=Math.round(worldPos.z);
-  const room=ES.rooms.find(r=>r.type!=='ramp'&&tx>=r.xMin&&tx<=r.xMax&&tz>=r.zMin&&tz<=r.zMax);
+  const room=ES.rooms.find(r=>{if(r.type==='ramp')return false;const b=_bBox(r);return tx>=b.xMin&&tx<=b.xMax&&tz>=b.zMin&&tz<=b.zMax;});
   if(!room) { _setStatus('No room tile here'); return; }
   if(!room.lavaCoords)  room.lavaCoords=[];
   if(!room.lavaPalette) room.lavaPalette=[0xff3300,0xff4400,0xff5500,0xee4400];
@@ -2087,7 +2115,10 @@ document.getElementById('bd-create').addEventListener('click', () => {
     const nd  = document.getElementById(`bd-${fk}-nd`)?.checked || false;
     faces[fk] = { color: col, nodraw: nd };
   });
-  const brush = { id, xMin:x0, xMax:x1, zMin:z0, zMax:z1, yMin, yMax, walkable, brushClass, faces };
+  const brush = { id,
+    position: { x:(x0+x1)/2, y:(yMin+yMax)/2, z:(z0+z1)/2 },
+    scale:    { x:(x1-x0+1), y:(yMax-yMin),   z:(z1-z0+1) },
+    walkable, brushClass, faces };
   if (brushClass === 'trigger') {
     brush.triggerType  = document.getElementById('bd-trigger-type').value || 'enter';
     brush.scriptId     = document.getElementById('bd-script-id').value || '';
@@ -2251,9 +2282,8 @@ function _showBrushProps(brush) {
     <div class="prop-heading">${isTrigger?'Trigger Zone':'Brush'}</div>
     ${_tr('ID','bp-id',brush.id)}
     <div class="prop-row"><label>Class</label><select id="bp-class">${classOpts}</select></div>
-    ${_tn('xMin','bp-xmin',brush.xMin)}${_tn('xMax','bp-xmax',brush.xMax)}
-    ${_tn('zMin','bp-zmin',brush.zMin)}${_tn('zMax','bp-zmax',brush.zMax)}
-    ${_tn('Y Min','bp-ymin',brush.yMin,0.1)}${_tn('Y Max','bp-ymax',brush.yMax,0.1)}
+    ${_tn('Pos X','bp-px',brush.position.x)}${_tn('Pos Y','bp-py',brush.position.y,0.1)}${_tn('Pos Z','bp-pz',brush.position.z)}
+    ${_tn('Scale X','bp-sx',brush.scale.x)}${_tn('Scale Y','bp-sy',brush.scale.y,0.1)}${_tn('Scale Z','bp-sz',brush.scale.z)}
     <div class="prop-row"><label>Walkable</label>
       <label style="display:flex;align-items:center;gap:5px;width:auto">
         <input type="checkbox" id="bp-walkable"${walkChk} style="width:auto">
@@ -2267,9 +2297,8 @@ function _showBrushProps(brush) {
 
   // Bind fields
   const afterBrush=()=>{ rebuildLevel(); _updateHandles(brush.id,'brush'); };
-  _bindNumField('bp-xmin',brush,'xMin',afterBrush); _bindNumField('bp-xmax',brush,'xMax',afterBrush);
-  _bindNumField('bp-zmin',brush,'zMin',afterBrush); _bindNumField('bp-zmax',brush,'zMax',afterBrush);
-  _bindNumField('bp-ymin',brush,'yMin',afterBrush); _bindNumField('bp-ymax',brush,'yMax',afterBrush);
+  _bindNumField('bp-px',brush.position,'x',afterBrush); _bindNumField('bp-py',brush.position,'y',afterBrush); _bindNumField('bp-pz',brush.position,'z',afterBrush);
+  _bindNumField('bp-sx',brush.scale,'x',afterBrush,true); _bindNumField('bp-sy',brush.scale,'y',afterBrush); _bindNumField('bp-sz',brush.scale,'z',afterBrush,true);
   document.getElementById('bp-id')?.addEventListener('change', e => { brush.id=e.target.value; rebuildLevel(); _refreshLayersList(); });
   document.getElementById('bp-walkable')?.addEventListener('change', e => { brush.walkable=e.target.checked; });
   document.getElementById('bp-class')?.addEventListener('change', e => { brush.brushClass=e.target.value; rebuildLevel(); _showBrushProps(brush); });

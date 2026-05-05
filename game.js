@@ -145,13 +145,23 @@ const _WALL_DIRS = [
 
 // ─── Level engine ─────────────────────────────────────────────────────────────
 
+function _bBox(obj) {
+  const p = obj.position, s = obj.scale;
+  return {
+    xMin: p.x - (s.x - 1) / 2, xMax: p.x + (s.x - 1) / 2,
+    zMin: p.z - (s.z - 1) / 2, zMax: p.z + (s.z - 1) / 2,
+    yMin: p.y - s.y / 2,        yMax: p.y + s.y / 2,
+  };
+}
+
 function _lvlBuildStoneRoom(room, elevatedSet) {
   const lavaSet = room.lavaCoords
     ? new Set(room.lavaCoords.map(([x, z]) => `${x},${z}`))
     : new Set();
-  for (let x = room.xMin; x <= room.xMax; x++) {
+  const {xMin, xMax, zMin, zMax} = _bBox(room);
+  for (let x = xMin; x <= xMax; x++) {
     if (!tileMap[x]) tileMap[x] = {};
-    for (let z = room.zMin; z <= room.zMax; z++) {
+    for (let z = zMin; z <= zMax; z++) {
       if (elevatedSet.has(`${x},${z}`)) continue;  // elevated override below
       const isLava = lavaSet.has(`${x},${z}`);
       const palette = isLava ? room.lavaPalette : room.palette;
@@ -173,9 +183,10 @@ function _lvlBuildStoneRoom(room, elevatedSet) {
 
 function _lvlBuildCorridorRoom(room) {
   const doorSet = new Set(room.doorZ || []);
-  for (let x = room.xMin; x <= room.xMax; x++) {
+  const {xMin, xMax, zMin, zMax} = _bBox(room);
+  for (let x = xMin; x <= xMax; x++) {
     if (!tileMap[x]) tileMap[x] = {};
-    for (let z = room.zMin; z <= room.zMax; z++) {
+    for (let z = zMin; z <= zMax; z++) {
       const isDoor = doorSet.has(z);
       const color  = isDoor
         ? room.doorColor
@@ -195,13 +206,14 @@ function _lvlBuildCorridorRoom(room) {
 function _lvlBuildRampRoom(room) {
   // supports elevationAxis: 'x' (default) or 'z'
   const axis  = room.elevationAxis || 'x';
-  const steps = axis === 'z' ? (room.zMax - room.zMin + 1) : (room.xMax - room.xMin + 1);
+  const {xMin, xMax, zMin, zMax} = _bBox(room);
+  const steps = axis === 'z' ? (zMax - zMin + 1) : (xMax - xMin + 1);
   for (let step = 0; step < steps; step++) {
     const elev = room.elevationStart + _STEP_H * step;
-    const x0   = axis === 'z' ? room.xMin       : room.xMin + step;
-    const x1   = axis === 'z' ? room.xMax       : x0;
-    const z0   = axis === 'z' ? room.zMin + step : room.zMin;
-    const z1   = axis === 'z' ? z0              : room.zMax;
+    const x0   = axis === 'z' ? xMin       : xMin + step;
+    const x1   = axis === 'z' ? xMax       : x0;
+    const z0   = axis === 'z' ? zMin + step : zMin;
+    const z1   = axis === 'z' ? z0         : zMax;
     for (let x = x0; x <= x1; x++) {
       if (!tileMap[x]) tileMap[x] = {};
       for (let z = z0; z <= z1; z++) {
@@ -291,15 +303,14 @@ function _lvlBuildLight(def) {
 // BoxGeometry face-group order in Three.js r128: px nx py ny pz nz
 const _BRUSH_FACE_ORDER = ['px','nx','py','ny','pz','nz'];
 function _lvlBuildBrush(brush) {
-  const w = (brush.xMax - brush.xMin) + 1;
-  const h = brush.yMax - brush.yMin;
-  const d = (brush.zMax - brush.zMin) + 1;
+  const {xMin, xMax, yMin, yMax, zMin, zMax} = _bBox(brush);
+  const w = brush.scale.x, h = brush.scale.y, d = brush.scale.z;
 
   if (brush.brushClass === 'trigger') {
     // Trigger zones are invisible in game — stamp every floor tile in the XZ footprint
     // with trigger metadata so the game loop can fire events when the player enters/leaves
-    for (let x = brush.xMin; x <= brush.xMax; x++) {
-      for (let z = brush.zMin; z <= brush.zMax; z++) {
+    for (let x = xMin; x <= xMax; x++) {
+      for (let z = zMin; z <= zMax; z++) {
         if (!tileMap[x]) tileMap[x] = {};
         // Write trigger data; don't overwrite existing walkability (solid floor may already be here)
         const cell = tileMap[x][z] || { walkable: false, type: 'trigger' };
@@ -324,11 +335,7 @@ function _lvlBuildBrush(brush) {
     return new THREE.MeshLambertMaterial({ color: f.color ?? 0x808080 });
   });
   const mesh = new THREE.Mesh(geo, mats);
-  mesh.position.set(
-    (brush.xMin + brush.xMax) / 2,
-    (brush.yMin + brush.yMax) / 2,
-    (brush.zMin + brush.zMax) / 2
-  );
+  mesh.position.set(brush.position.x, brush.position.y, brush.position.z);
   mesh.castShadow    = true;
   mesh.receiveShadow = true;
   scene.add(mesh);
@@ -413,8 +420,9 @@ function buildLevel(data) {
   // cells so the pathfinder treats them as impassable.
   for (const brush of (data.brushes || [])) {
     if (brush.brushClass !== 'solid' || brush.walkable) continue;
-    for (let x = brush.xMin; x <= brush.xMax; x++) {
-      for (let z = brush.zMin; z <= brush.zMax; z++) {
+    const {xMin, xMax, zMin, zMax} = _bBox(brush);
+    for (let x = xMin; x <= xMax; x++) {
+      for (let z = zMin; z <= zMax; z++) {
         if (tileMap[x]?.[z]) tileMap[x][z].walkable = false;
       }
     }

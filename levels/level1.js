@@ -29,11 +29,16 @@
     var cells = {};
     brushes.forEach(function(b) {
       if (!b.walkable) return;
-      for (var x = b.xMin; x <= b.xMax; x++) {
-        for (var z = b.zMin; z <= b.zMax; z++) {
+      var xMin = b.position.x - (b.scale.x - 1) / 2;
+      var xMax = b.position.x + (b.scale.x - 1) / 2;
+      var zMin = b.position.z - (b.scale.z - 1) / 2;
+      var zMax = b.position.z + (b.scale.z - 1) / 2;
+      var yMax = b.position.y + b.scale.y / 2;
+      for (var x = xMin; x <= xMax; x++) {
+        for (var z = zMin; z <= zMax; z++) {
           var k = x + ',' + z;
-          if (!cells[k] || cells[k].elevation < b.yMax)
-            cells[k] = { x: x, z: z, elevation: b.yMax };
+          if (!cells[k] || cells[k].elevation < yMax)
+            cells[k] = { x: x, z: z, elevation: yMax };
         }
       }
     });
@@ -79,81 +84,73 @@
     // ── Ground-floor areas ──────────────────────────────────────────────────
     {
       id:'b_main', brushClass:'solid', walkable:true,
-      xMin:-8, xMax:8,  zMin:-8, zMax:8,
-      yMin:-0.22, yMax:0,
+      position:{x:0,   y:-0.11, z:0},  scale:{x:17, y:0.22, z:17},
       faces: _f(C.stone, C.stoneSide),
     },
     {
       id:'b_corridor', brushClass:'solid', walkable:true,
-      xMin:-1, xMax:1,  zMin:9,  zMax:13,
-      yMin:-0.22, yMax:0,
+      position:{x:0,   y:-0.11, z:11}, scale:{x:3,  y:0.22, z:5},
       faces: _f(C.corr, C.corrSide),
     },
     {
       id:'b_room2', brushClass:'solid', walkable:true,
-      xMin:-5, xMax:5,  zMin:14, zMax:24,
-      yMin:-0.22, yMax:0,
+      position:{x:0,   y:-0.11, z:19}, scale:{x:11, y:0.22, z:11},
       faces: _f(C.blue, C.blueSide),
     },
     {
       id:'b_room4', brushClass:'solid', walkable:true,
-      xMin:9,  xMax:22, zMin:-10, zMax:6,
-      yMin:-0.22, yMax:0,
+      position:{x:15.5,y:-0.11, z:-2}, scale:{x:14, y:0.22, z:17},
       faces: _f(C.green, C.greenSide),
     },
 
     // ── Elevated room (north-east) ──────────────────────────────────────────
     {
       id:'b_room3', brushClass:'solid', walkable:true,
-      xMin:11, xMax:19, zMin:12, zMax:20,
-      yMin:1.28, yMax:1.5,
+      position:{x:15,  y:1.39,  z:16}, scale:{x:9,  y:0.22, z:9},
       faces: _f(C.tan, C.tanSide),
     },
 
     // ── Raised platform in room2 ────────────────────────────────────────────
-    // Sits on the room2 floor (yMin=0 avoids z-fighting with the floor brush).
     {
       id:'b_platform', brushClass:'solid', walkable:true,
-      xMin:-2, xMax:2,  zMin:17, zMax:21,
-      yMin:0, yMax:0.9,
+      position:{x:0,   y:0.45,  z:19}, scale:{x:5,  y:0.9,  z:5},
       faces: _f(C.plat, C.platSide),
     },
 
     // ── Staircase south: room2 floor (y=0) → platform (y=0.9) ──────────────
-    { id:'b_step_s1', brushClass:'solid', walkable:true, xMin:-1, xMax:1, zMin:15, zMax:15, yMin:0, yMax:0.3, faces:_f(C.step, C.stepSide) },
-    { id:'b_step_s2', brushClass:'solid', walkable:true, xMin:-1, xMax:1, zMin:16, zMax:16, yMin:0, yMax:0.6, faces:_f(C.step, C.stepSide) },
+    { id:'b_step_s1', brushClass:'solid', walkable:true, position:{x:0,y:0.15,z:15}, scale:{x:3,y:0.3,z:1}, faces:_f(C.step, C.stepSide) },
+    { id:'b_step_s2', brushClass:'solid', walkable:true, position:{x:0,y:0.3, z:16}, scale:{x:3,y:0.6,z:1}, faces:_f(C.step, C.stepSide) },
 
     // ── Staircase north: platform → room2 floor (descending) ───────────────
-    { id:'b_step_n1', brushClass:'solid', walkable:true, xMin:-1, xMax:1, zMin:22, zMax:22, yMin:0, yMax:0.6, faces:_f(C.step, C.stepSide) },
-    { id:'b_step_n2', brushClass:'solid', walkable:true, xMin:-1, xMax:1, zMin:23, zMax:23, yMin:0, yMax:0.3, faces:_f(C.step, C.stepSide) },
+    { id:'b_step_n1', brushClass:'solid', walkable:true, position:{x:0,y:0.3, z:22}, scale:{x:3,y:0.6,z:1}, faces:_f(C.step, C.stepSide) },
+    { id:'b_step_n2', brushClass:'solid', walkable:true, position:{x:0,y:0.15,z:23}, scale:{x:3,y:0.3,z:1}, faces:_f(C.step, C.stepSide) },
 
     // ── Ramp 1: room2 ground (x=6,y=0) → room3 floor (x=10,y=1.5) ─────────
     // Stepped along +X, three tiles wide (z=16–18).
-    { id:'b_r1_1', brushClass:'solid', walkable:true, xMin:6,  xMax:6,  zMin:16, zMax:18, yMin:-0.22, yMax:0.3, faces:_f(C.ramp, C.rampSide) },
-    { id:'b_r1_2', brushClass:'solid', walkable:true, xMin:7,  xMax:7,  zMin:16, zMax:18, yMin:-0.22, yMax:0.6, faces:_f(C.ramp, C.rampSide) },
-    { id:'b_r1_3', brushClass:'solid', walkable:true, xMin:8,  xMax:8,  zMin:16, zMax:18, yMin:-0.22, yMax:0.9, faces:_f(C.ramp, C.rampSide) },
-    { id:'b_r1_4', brushClass:'solid', walkable:true, xMin:9,  xMax:9,  zMin:16, zMax:18, yMin:-0.22, yMax:1.2, faces:_f(C.ramp, C.rampSide) },
-    { id:'b_r1_5', brushClass:'solid', walkable:true, xMin:10, xMax:10, zMin:16, zMax:18, yMin:-0.22, yMax:1.5, faces:_f(C.ramp, C.rampSide) },
+    { id:'b_r1_1', brushClass:'solid', walkable:true, position:{x:6, y:0.04,z:17}, scale:{x:1,y:0.52,z:3}, faces:_f(C.ramp, C.rampSide) },
+    { id:'b_r1_2', brushClass:'solid', walkable:true, position:{x:7, y:0.19,z:17}, scale:{x:1,y:0.82,z:3}, faces:_f(C.ramp, C.rampSide) },
+    { id:'b_r1_3', brushClass:'solid', walkable:true, position:{x:8, y:0.34,z:17}, scale:{x:1,y:1.12,z:3}, faces:_f(C.ramp, C.rampSide) },
+    { id:'b_r1_4', brushClass:'solid', walkable:true, position:{x:9, y:0.49,z:17}, scale:{x:1,y:1.42,z:3}, faces:_f(C.ramp, C.rampSide) },
+    { id:'b_r1_5', brushClass:'solid', walkable:true, position:{x:10,y:0.64,z:17}, scale:{x:1,y:1.72,z:3}, faces:_f(C.ramp, C.rampSide) },
 
     // ── Ramp 2: room4 ground (z=7,y=0) → room3 floor (z=11,y=1.5) ─────────
     // Stepped along +Z, three tiles wide (x=13–15).
-    { id:'b_r2_1', brushClass:'solid', walkable:true, xMin:13, xMax:15, zMin:7,  zMax:7,  yMin:-0.22, yMax:0.3, faces:_f(C.ramp, C.rampSide) },
-    { id:'b_r2_2', brushClass:'solid', walkable:true, xMin:13, xMax:15, zMin:8,  zMax:8,  yMin:-0.22, yMax:0.6, faces:_f(C.ramp, C.rampSide) },
-    { id:'b_r2_3', brushClass:'solid', walkable:true, xMin:13, xMax:15, zMin:9,  zMax:9,  yMin:-0.22, yMax:0.9, faces:_f(C.ramp, C.rampSide) },
-    { id:'b_r2_4', brushClass:'solid', walkable:true, xMin:13, xMax:15, zMin:10, zMax:10, yMin:-0.22, yMax:1.2, faces:_f(C.ramp, C.rampSide) },
-    { id:'b_r2_5', brushClass:'solid', walkable:true, xMin:13, xMax:15, zMin:11, zMax:11, yMin:-0.22, yMax:1.5, faces:_f(C.ramp, C.rampSide) },
+    { id:'b_r2_1', brushClass:'solid', walkable:true, position:{x:14,y:0.04,z:7},  scale:{x:3,y:0.52,z:1}, faces:_f(C.ramp, C.rampSide) },
+    { id:'b_r2_2', brushClass:'solid', walkable:true, position:{x:14,y:0.19,z:8},  scale:{x:3,y:0.82,z:1}, faces:_f(C.ramp, C.rampSide) },
+    { id:'b_r2_3', brushClass:'solid', walkable:true, position:{x:14,y:0.34,z:9},  scale:{x:3,y:1.12,z:1}, faces:_f(C.ramp, C.rampSide) },
+    { id:'b_r2_4', brushClass:'solid', walkable:true, position:{x:14,y:0.49,z:10}, scale:{x:3,y:1.42,z:1}, faces:_f(C.ramp, C.rampSide) },
+    { id:'b_r2_5', brushClass:'solid', walkable:true, position:{x:14,y:0.64,z:11}, scale:{x:3,y:1.72,z:1}, faces:_f(C.ramp, C.rampSide) },
 
     // ── Pillars flanking the corridor ───────────────────────────────────────
-    { id:'b_pill_nw', brushClass:'solid', walkable:false, xMin:-1, xMax:-1, zMin:8,  zMax:8,  yMin:0, yMax:1.8, faces:_u(C.pillar) },
-    { id:'b_pill_ne', brushClass:'solid', walkable:false, xMin:1,  xMax:1,  zMin:8,  zMax:8,  yMin:0, yMax:1.8, faces:_u(C.pillar) },
-    { id:'b_pill_sw', brushClass:'solid', walkable:false, xMin:-1, xMax:-1, zMin:13, zMax:13, yMin:0, yMax:1.8, faces:_u(C.pillar) },
-    { id:'b_pill_se', brushClass:'solid', walkable:false, xMin:1,  xMax:1,  zMin:13, zMax:13, yMin:0, yMax:1.8, faces:_u(C.pillar) },
+    { id:'b_pill_nw', brushClass:'solid', walkable:false, position:{x:-1,y:0.9,z:8},  scale:{x:1,y:1.8,z:1}, faces:_u(C.pillar) },
+    { id:'b_pill_ne', brushClass:'solid', walkable:false, position:{x:1, y:0.9,z:8},  scale:{x:1,y:1.8,z:1}, faces:_u(C.pillar) },
+    { id:'b_pill_sw', brushClass:'solid', walkable:false, position:{x:-1,y:0.9,z:13}, scale:{x:1,y:1.8,z:1}, faces:_u(C.pillar) },
+    { id:'b_pill_se', brushClass:'solid', walkable:false, position:{x:1, y:0.9,z:13}, scale:{x:1,y:1.8,z:1}, faces:_u(C.pillar) },
 
     // ── Altar on the platform ───────────────────────────────────────────────
     {
       id:'b_altar', brushClass:'solid', walkable:false,
-      xMin:0, xMax:0, zMin:19, zMax:19,
-      yMin:0.9, yMax:1.35,
+      position:{x:0,   y:1.125,z:19}, scale:{x:1,  y:0.45, z:1},
       faces: _u(C.altar),
     },
 
@@ -161,8 +158,7 @@
     // Non-walkable.  Orange top, dark glowing sides.
     {
       id:'b_lava', brushClass:'solid', walkable:false,
-      xMin:4, xMax:7, zMin:4, zMax:7,
-      yMin:-0.22, yMax:0.05,
+      position:{x:5.5, y:-0.085,z:5.5}, scale:{x:4, y:0.27, z:4},
       faces: {
         py: { color: C.lava,    nodraw: false },
         ny: { color: 0,         nodraw: true  },

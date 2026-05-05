@@ -29,6 +29,7 @@ A step-by-step record of every feature added to the game, with the most importan
 24. [Stage 24 — editor.js Refactor: Entity Lookup, Prop-Row Unification, Color Helper, Binding Helpers (v1.6.6)](#stage-24)
 25. [Stage 25 — editor.js Refactor: Precision Helper, Shared-Value Helper, Extract Resize Drag (v1.6.7)](#stage-25)
 26. [Stage 26 — editor.js Refactor: Rename Abbreviations to Full Names (v1.6.8)](#stage-26)
+27. [Stage 27 — Brush/Room Data Format: position + scale (v1.7.0)](#stage-27)
 
 ---
 
@@ -1919,3 +1920,59 @@ _ax3d[key].style.left = clampedX + 'px';
 _ax3d[key].style.top  = clampedY + 'px';
 ```
 
+
+
+---
+
+## Stage 27 — Brush/Room Data Format: position + scale (v1.7.0) {#stage-27}
+
+**Goal:** Replace the six-field `xMin/xMax/zMin/zMax/yMin/yMax` bounds pattern on brush and room objects with a `position: {x,y,z}` + `scale: {x,y,z}` representation. This mirrors Three.js mesh conventions and leaves a natural slot for a future `rotation` field.
+
+### New data format
+
+Every brush (and room) now stores:
+
+```js
+{
+  position: { x, y, z },  // world-space centre
+  scale:    { x, y, z },  // XZ in tiles (+1 width), Y in world-units
+}
+```
+
+Conversions:
+- `xMin = position.x - (scale.x - 1) / 2`
+- `xMax = position.x + (scale.x - 1) / 2`
+- `yMin = position.y - scale.y / 2`
+- `yMax = position.y + scale.y / 2`
+- `zMin = position.z - (scale.z - 1) / 2`
+- `zMax = position.z + (scale.z - 1) / 2`
+
+### Helpers added to game.js and editor.js
+
+```js
+function _bBox(obj) {
+  const p = obj.position, s = obj.scale;
+  return {
+    xMin: p.x - (s.x - 1) / 2, xMax: p.x + (s.x - 1) / 2,
+    zMin: p.z - (s.z - 1) / 2, zMax: p.z + (s.z - 1) / 2,
+    yMin: p.y - s.y / 2,        yMax: p.y + s.y / 2,
+  };
+}
+function _setFromBBox(obj, xMin, xMax, yMin, yMax, zMin, zMax) {
+  obj.scale.x    = xMax - xMin + 1;
+  obj.scale.z    = zMax - zMin + 1;
+  obj.scale.y    = yMax - yMin;
+  obj.position.x = (xMin + xMax) / 2;
+  obj.position.y = (yMin + yMax) / 2;
+  obj.position.z = (zMin + zMax) / 2;
+}
+```
+
+`_bBox` is used everywhere bounds are read (tile loops, handle placement, marquee, navmesh compile). `_setFromBBox` is called after all four drag-handle branches mutate a local bbox copy.
+
+### Files changed
+
+- `game.js` — `_lvlBuildStoneRoom`, `_lvlBuildCorridorRoom`, `_lvlBuildRampRoom`, `_lvlBuildBrush`, non-walkable blocking loop.
+- `editor.js` — `_buildRoom`, `_buildRampRoom`, `_buildBrushMesh`, `_compileNavMesh`, `_updateRoomBoundsBox`, `_updateHandles`, `_handleResizeDrag` (all 4 branches), `_applyMoveDelta`, `_moveSelection`, `_duplicateSelection`, marquee selection, brush creation dialog, room and brush props panels.
+- `levels/level1.js` — `_bakeNav` updated; all 26 brush objects converted.
+- `levels/level2.js` — all 26 brush objects converted (JSON format).

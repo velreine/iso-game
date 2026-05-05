@@ -19,12 +19,8 @@
       "id": "b_main",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": -8,
-      "xMax": 8,
-      "zMin": -8,
-      "zMax": 8,
-      "yMin": -0.22,
-      "yMax": 0,
+      "position": {"x": 0, "y": -0.11, "z": 0},
+      "scale": {"x": 17, "y": 0.22, "z": 17},
       "faces": {
         "py": {
           "color": 5263452,
@@ -56,12 +52,8 @@
       "id": "b_corridor",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": -1,
-      "xMax": 1,
-      "zMin": 9,
-      "zMax": 13,
-      "yMin": -0.22,
-      "yMax": 0,
+      "position": {"x": 0, "y": -0.11, "z": 11},
+      "scale": {"x": 3, "y": 0.22, "z": 5},
       "faces": {
         "py": {
           "color": 5395036,
@@ -93,12 +85,8 @@
       "id": "b_room2",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": -5,
-      "xMax": 5,
-      "zMin": 14,
-      "zMax": 24,
-      "yMin": -0.22,
-      "yMax": 0,
+      "position": {"x": 0, "y": -0.11, "z": 19},
+      "scale": {"x": 11, "y": 0.22, "z": 11},
       "faces": {
         "py": {
           "color": 3621464,
@@ -130,12 +118,8 @@
       "id": "b_room4",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 9,
-      "xMax": 22,
-      "zMin": -10,
-      "zMax": 6,
-      "yMin": -0.22,
-      "yMax": 0,
+      "position": {"x": 15.5, "y": -0.11, "z": -2},
+      "scale": {"x": 14, "y": 0.22, "z": 17},
       "faces": {
         "py": {
           "color": 4020798,
@@ -167,12 +151,8 @@
       "id": "b_room3",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 11,
-      "xMax": 19,
-      "zMin": 12,
-      "zMax": 20,
-      "yMin": 1.28,
-      "yMax": 1.5,
+      "position": {"x": 15, "y": 1.39, "z": 16},
+      "scale": {"x": 9, "y": 0.22, "z": 9},
       "faces": {
         "py": {
           "color": 9139029,
@@ -204,12 +184,8 @@
       "id": "b_platform",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": -2,
-      "xMax": 2,
-      "zMin": 17,
-      "zMax": 21,
-      "yMin": 0,
-      "yMax": 0.9,
+      "position": {"x": 0, "y": 0.45, "z": 19},
+      "scale": {"x": 5, "y": 0.9, "z": 5},
       "faces": {
         "py": {
           "color": 3819624,
@@ -241,12 +217,8 @@
       "id": "b_step_s1",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": -1,
-      "xMax": 1,
-      "zMin": 15,
-      "zMax": 15,
-      "yMin": 0,
-      "yMax": 0.3,
+      "position": {"x": 0, "y": 0.15, "z": 15},
+      "scale": {"x": 3, "y": 0.3, "z": 1},
       "faces": {
         "py": {
           "color": 4739184,
@@ -278,12 +250,8 @@
       "id": "b_step_s2",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": -1,
-      "xMax": 1,
-      "zMin": 16,
-      "zMax": 16,
-      "yMin": 0,
-      "yMax": 0.6,
+      "position": {"x": 0, "y": 0.3, "z": 16},
+      "scale": {"x": 3, "y": 0.6, "z": 1},
       "faces": {
         "py": {
           "color": 4739184,
@@ -315,12 +283,8 @@
       "id": "b_step_n1",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": -1,
-      "xMax": 1,
-      "zMin": 22,
-      "zMax": 22,
-      "yMin": 0,
-      "yMax": 0.6,
+      "position": {"x": 0, "y": 0.3, "z": 22},
+      "scale": {"x": 3, "y": 0.6, "z": 1},
       "faces": {
         "py": {
           "color": 4739184,
@@ -352,12 +316,8 @@
       "id": "b_step_n2",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": -1,
-      "xMax": 1,
-      "zMin": 23,
-      "zMax": 23,
-      "yMin": 0,
-      "yMax": 0.3,
+      "position": {"x": 0, "y": 0.15, "z": 23},
+      "scale": {"x": 3, "y": 0.3, "z": 1},
       "faces": {
         "py": {
           "color": 4739184,
@@ -389,12 +349,8 @@
       "id": "b_r1_1",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 6,
-      "xMax": 6,
-      "zMin": 16,
-      "zMax": 18,
-      "yMin": -0.22,
-      "yMax": 0.3,
+      "position": {"x": 6, "y": 0.04, "z": 17},
+      "scale": {"x": 1, "y": 0.52, "z": 3},
       "faces": {
         "py": {
           "color": 9073240,
@@ -426,12 +382,8 @@
       "id": "b_r1_2",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 7,
-      "xMax": 7,
-      "zMin": 16,
-      "zMax": 18,
-      "yMin": -0.22,
-      "yMax": 0.6,
+      "position": {"x": 7, "y": 0.19, "z": 17},
+      "scale": {"x": 1, "y": 0.82, "z": 3},
       "faces": {
         "py": {
           "color": 9073240,
@@ -463,12 +415,8 @@
       "id": "b_r1_3",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 8,
-      "xMax": 8,
-      "zMin": 16,
-      "zMax": 18,
-      "yMin": -0.22,
-      "yMax": 0.9,
+      "position": {"x": 8, "y": 0.34, "z": 17},
+      "scale": {"x": 1, "y": 1.12, "z": 3},
       "faces": {
         "py": {
           "color": 9073240,
@@ -500,12 +448,8 @@
       "id": "b_r1_4",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 9,
-      "xMax": 9,
-      "zMin": 16,
-      "zMax": 18,
-      "yMin": -0.22,
-      "yMax": 1.2,
+      "position": {"x": 9, "y": 0.49, "z": 17},
+      "scale": {"x": 1, "y": 1.42, "z": 3},
       "faces": {
         "py": {
           "color": 9073240,
@@ -537,12 +481,8 @@
       "id": "b_r1_5",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 10,
-      "xMax": 10,
-      "zMin": 16,
-      "zMax": 18,
-      "yMin": -0.22,
-      "yMax": 1.5,
+      "position": {"x": 10, "y": 0.64, "z": 17},
+      "scale": {"x": 1, "y": 1.72, "z": 3},
       "faces": {
         "py": {
           "color": 9073240,
@@ -574,12 +514,8 @@
       "id": "b_r2_1",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 13,
-      "xMax": 15,
-      "zMin": 7,
-      "zMax": 7,
-      "yMin": -0.22,
-      "yMax": 0.3,
+      "position": {"x": 14, "y": 0.04, "z": 7},
+      "scale": {"x": 3, "y": 0.52, "z": 1},
       "faces": {
         "py": {
           "color": 9073240,
@@ -611,12 +547,8 @@
       "id": "b_r2_2",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 13,
-      "xMax": 15,
-      "zMin": 8,
-      "zMax": 8,
-      "yMin": -0.22,
-      "yMax": 0.6,
+      "position": {"x": 14, "y": 0.19, "z": 8},
+      "scale": {"x": 3, "y": 0.82, "z": 1},
       "faces": {
         "py": {
           "color": 9073240,
@@ -648,12 +580,8 @@
       "id": "b_r2_3",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 13,
-      "xMax": 15,
-      "zMin": 9,
-      "zMax": 9,
-      "yMin": -0.22,
-      "yMax": 0.9,
+      "position": {"x": 14, "y": 0.34, "z": 9},
+      "scale": {"x": 3, "y": 1.12, "z": 1},
       "faces": {
         "py": {
           "color": 9073240,
@@ -685,12 +613,8 @@
       "id": "b_r2_4",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 13,
-      "xMax": 15,
-      "zMin": 10,
-      "zMax": 10,
-      "yMin": -0.22,
-      "yMax": 1.2,
+      "position": {"x": 14, "y": 0.49, "z": 10},
+      "scale": {"x": 3, "y": 1.42, "z": 1},
       "faces": {
         "py": {
           "color": 9073240,
@@ -722,12 +646,8 @@
       "id": "b_r2_5",
       "brushClass": "solid",
       "walkable": true,
-      "xMin": 13,
-      "xMax": 15,
-      "zMin": 11,
-      "zMax": 11,
-      "yMin": -0.22,
-      "yMax": 1.5,
+      "position": {"x": 14, "y": 0.64, "z": 11},
+      "scale": {"x": 3, "y": 1.72, "z": 1},
       "faces": {
         "py": {
           "color": 9073240,
@@ -759,12 +679,8 @@
       "id": "b_pill_nw",
       "brushClass": "solid",
       "walkable": false,
-      "xMin": -1,
-      "xMax": -1,
-      "zMin": 8,
-      "zMax": 8,
-      "yMin": 0,
-      "yMax": 1.8,
+      "position": {"x": -1, "y": 0.9, "z": 8},
+      "scale": {"x": 1, "y": 1.8, "z": 1},
       "faces": {
         "py": {
           "color": 7366744,
@@ -796,12 +712,8 @@
       "id": "b_pill_ne",
       "brushClass": "solid",
       "walkable": false,
-      "xMin": 1,
-      "xMax": 1,
-      "zMin": 8,
-      "zMax": 8,
-      "yMin": 0,
-      "yMax": 1.8,
+      "position": {"x": 1, "y": 0.9, "z": 8},
+      "scale": {"x": 1, "y": 1.8, "z": 1},
       "faces": {
         "py": {
           "color": 7366744,
@@ -833,12 +745,8 @@
       "id": "b_pill_sw",
       "brushClass": "solid",
       "walkable": false,
-      "xMin": -1,
-      "xMax": -1,
-      "zMin": 13,
-      "zMax": 13,
-      "yMin": 0,
-      "yMax": 1.8,
+      "position": {"x": -1, "y": 0.9, "z": 13},
+      "scale": {"x": 1, "y": 1.8, "z": 1},
       "faces": {
         "py": {
           "color": 7366744,
@@ -870,12 +778,8 @@
       "id": "b_pill_se",
       "brushClass": "solid",
       "walkable": false,
-      "xMin": 1,
-      "xMax": 1,
-      "zMin": 13,
-      "zMax": 13,
-      "yMin": 0,
-      "yMax": 1.8,
+      "position": {"x": 1, "y": 0.9, "z": 13},
+      "scale": {"x": 1, "y": 1.8, "z": 1},
       "faces": {
         "py": {
           "color": 7366744,
@@ -907,12 +811,8 @@
       "id": "b_altar",
       "brushClass": "solid",
       "walkable": false,
-      "xMin": 0,
-      "xMax": 0,
-      "zMin": 19,
-      "zMax": 19,
-      "yMin": 0.9,
-      "yMax": 1.35,
+      "position": {"x": 0, "y": 1.125, "z": 19},
+      "scale": {"x": 1, "y": 0.45, "z": 1},
       "faces": {
         "py": {
           "color": 2763306,
@@ -944,12 +844,8 @@
       "id": "b_lava",
       "brushClass": "solid",
       "walkable": false,
-      "xMin": 4,
-      "xMax": 7,
-      "zMin": 4,
-      "zMax": 7,
-      "yMin": -0.22,
-      "yMax": 0.05,
+      "position": {"x": 5.5, "y": -0.085, "z": 5.5},
+      "scale": {"x": 4, "y": 0.27, "z": 4},
       "faces": {
         "py": {
           "color": 16729088,

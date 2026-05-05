@@ -6,6 +6,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.0] - 2026-05-03
+### Changed
+- **Brush/room data format: `xMin/xMax/zMin/zMax/yMin/yMax` → `position{x,y,z}` + `scale{x,y,z}`** — all brush and room objects now store a centre `position` and a `scale` instead of six min/max bounds. XZ scale is tile-count (`xMax-xMin+1`); Y scale is world-units (`yMax-yMin`). Added `_bBox(obj)` helper (derives min/max from position/scale for iteration and handle placement) and `_setFromBBox(obj, ...)` (writes back from a mutated bbox, used by all resize drag handlers). Updated `game.js`, `editor.js`, `levels/level1.js`, `levels/level2.js`, and `_bakeNav` in level1. Properties panel for brushes now shows Pos X/Y/Z and Scale X/Y/Z fields. Future rotation field will fit naturally alongside position and scale.
+
 ## [1.6.8] - 2026-05-03
 ### Changed
 - **Renamed abbreviated identifiers to full names throughout `editor.js`** — all named function parameters, module-level variables, and local variables in event handlers and named functions now use self-documenting names. Key renames: `cx`/`cy` → `mouseX`/`mouseY` (event handlers), `vp` → `viewport`, `ht` → `handleType`, `ud` → `userData`, `wp` → `worldPos`, `dx`/`dy` → `deltaX`/`deltaY`, `ps` → `panScale`, `activeVP` → `activeViewport`, `_lastHoverVP` → `_lastHoverViewport`, `_ctxVP` → `_ctxViewport`, `name`/`cam` → `viewportName`/`camera` in `_renderVP`, `cx`/`cy` → `clampedX`/`clampedY` in `_updateAxisLabels3D`, `elev` → `elevation`, `ht` → `boundsHeight` in `_updateRoomBoundsBox`, `v` → `projected` in `worldToCSS`, `int` → `asInteger` in `_bindNumField`. Anonymous arrow-function parameters are left abbreviated per convention.
