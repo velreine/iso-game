@@ -6,6 +6,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.5] - 2026-05-05
+### Changed
+- **editor.js refactor — readability and maintainability pass:**
+  - `_clearGroup(group)` helper replaces 5 identical while-loop geometry-dispose patterns in `rebuildLevel`, `_buildNavOverlay`, and `_buildNavHitboxes`.
+  - `_placeHandle(name, x, y, z)` helper replaces 28 repeated `handleMeshes[ax].position.set()` / `.visible=true` lines in `_updateHandles`.
+  - `_vpHideAxes` lookup table moved from inside `_renderVP` (redefined every frame) to module level alongside `_vpHandleAxes`.
+  - `_removeFromES(kind, id)` helper centralises entity removal; `_deleteSelected` forEach body reduced to one call.
+  - `bBN`/`bBNInt`/`bBC`/`bBS` renamed to `batchNum`/`batchNumInt`/`batchColor`/`batchSelect` in `_bindBatchHandlers`.
+  - `_onMouseMove` split into `_handleMoveDrag`, `_handleOrthoPan`, `_updateCursorAndHover`; dispatcher is now 20 lines.
+  - `_refreshLayersList` split into `_buildLayersHTML` (returns HTML) and `_bindLayersHandlers` (attaches events); `_refreshLayersList` is now a 3-line orchestrator.
+
 ## [1.7.4] - 2026-05-05
 ### Fixed
 - **Brush Y snap snapped to tile midpoints (0.5, 1.5…) instead of whole units** — `_snapY` was delegating to `snapGrid` which applies the XZ tile-centre offset (`+0.5`). Y has no tile-centre concept; whole-unit snap is correct. Fixed `_snapY` to snap Y to whole units when tile or intersection snap is active, and to 0.5-unit steps when both are on.

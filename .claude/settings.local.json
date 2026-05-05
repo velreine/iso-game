@@ -3,7 +3,8 @@
     "allow": [
       "Bash(ipconfig)",
       "Bash(findstr /i \"IPv4\")",
-      "Bash(docker compose *)"
+      "Bash(docker compose *)",
+      "Bash(node *)"
     ]
   }
 }

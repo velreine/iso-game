@@ -34,6 +34,7 @@ A step-by-step record of every feature added to the game, with the most importan
 29. [Stage 29 — Fix Side-View zMin/zMax Handle Drag (v1.7.2)](#stage-29)
 30. [Stage 30 — Fix Y Resize Snap (v1.7.3)](#stage-30)
 31. [Stage 31 — Fix Y Snap Midpoint Bug (v1.7.4)](#stage-31)
+32. [Stage 32 — editor.js Refactor: Helpers, Split Functions (v1.7.5)](#stage-32)
 
 ---
 
@@ -2133,3 +2134,51 @@ function _snapY(y, viewport) {
 | intersection only | whole units (0, 1, 2…) |
 | both | 0.5 steps (0, 0.5, 1…) |
 | neither | free (2 dp) |
+
+---
+
+<a name="stage-32"></a>
+## Stage 32 — editor.js Refactor: Helpers, Split Functions (v1.7.5)
+
+### Goal
+
+Improve readability and maintainability of `editor.js` without changing any behaviour. Seven distinct changes were applied.
+
+### Changes
+
+**`_clearGroup(group)`** — new helper replacing 5 identical while-loop geometry-dispose patterns:
+```js
+function _clearGroup(group) {
+  while (group.children.length) {
+    const o = group.children[0]; group.remove(o);
+    if (o.geometry) o.geometry.dispose();
+  }
+}
+```
+Used in `rebuildLevel` (3×), `_buildNavOverlay`, `_buildNavHitboxes`.
+
+**`_placeHandle(name, x, y, z)`** — new helper replacing 28 repeated `.position.set()` + `.visible=true` lines across the room and brush branches of `_updateHandles`:
+```js
+function _placeHandle(name, x, y, z, show = true) {
+  const m = handleMeshes[name]; if (!m) return;
+  m.position.set(x, y, z); m.visible = show;
+}
+```
+
+**`_vpHideAxes` to module level** — the per-viewport axis-hide lookup table was being `const`-declared inside `_renderVP` on every animation frame. Moved to module level beside `_vpHandleAxes`.
+
+**`_removeFromES(kind, id)`** — centralises entity removal from ES arrays. `_deleteSelected` forEach body reduced from 6 if/else-if filter lines to one `_removeFromES` call.
+
+**Batch handler rename** — `bBN`/`bBNInt`/`bBC`/`bBS` renamed to `batchNum`/`batchNumInt`/`batchColor`/`batchSelect` in `_bindBatchHandlers`.
+
+**`_onMouseMove` split** — the 80-line function extracted into:
+- `_handleMoveDrag(mouseX, mouseY, dragViewport)` — viewport-specific delta application
+- `_handleOrthoPan(deltaX, deltaY, viewport)` — middle/right-drag panning
+- `_updateCursorAndHover(mouseX, mouseY, viewport)` — hover tile, cursor feedback, coord readout, draw preview
+
+`_onMouseMove` is now a 20-line dispatcher.
+
+**`_refreshLayersList` split** — the 195-line function separated into:
+- `_buildLayersHTML()` — pure HTML builder, returns a string
+- `_bindLayersHandlers()` — attaches all event listeners to the rendered HTML
+- `_refreshLayersList()` — 3-line orchestrator: `innerHTML = _buildLayersHTML(); _bindLayersHandlers();`

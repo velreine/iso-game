@@ -355,23 +355,23 @@ helperScene.add(brushEdgeGroup);
 const navHitboxGroup = new THREE.Group();
 helperScene.add(navHitboxGroup);
 
+
+function _clearGroup(group) {
+  while (group.children.length) {
+    const o = group.children[0];
+    group.remove(o);
+    if (o.geometry) o.geometry.dispose();
+  }
+}
+
 // Virtual _navmesh folder collapsed state
 let _navFolderCollapsed = false;
 const _navMat = new THREE.MeshBasicMaterial({ color:0x00ff88, transparent:true, opacity:0.35, depthWrite:false, side:THREE.DoubleSide });
 
 function rebuildLevel() {
-  while (levelGroup.children.length) {
-    const o=levelGroup.children[0]; levelGroup.remove(o);
-    if (o.geometry) o.geometry.dispose();
-  }
-  while (brushEdgeGroup.children.length) {
-    const o=brushEdgeGroup.children[0]; brushEdgeGroup.remove(o);
-    if (o.geometry) o.geometry.dispose();
-  }
-  while (navHitboxGroup.children.length) {
-    const o=navHitboxGroup.children[0]; navHitboxGroup.remove(o);
-    if (o.geometry) o.geometry.dispose();
-  }
+  _clearGroup(levelGroup);
+  _clearGroup(brushEdgeGroup);
+  _clearGroup(navHitboxGroup);
   tileMeshes=[]; wallMeshes=[]; decorMeshes=[]; lightMeshes=[]; standaloneMs=[]; brushMeshes=[]; entityMeshes=[];
   tileMap={};
   spawnMesh.visible = false;    // re-shown by _buildEntityMesh if a spawn entity exists
@@ -582,7 +582,7 @@ function _compileNavMesh(mode='override') {
 }
 
 function _buildNavOverlay() {
-  while(navOverlayGroup.children.length){ const o=navOverlayGroup.children[0]; navOverlayGroup.remove(o); if(o.geometry)o.geometry.dispose(); }
+  _clearGroup(navOverlayGroup);
   if (!_showNavMesh||!ES.navMesh.length) return;
   ES.navMesh.forEach(cell=>{
     const isSel = selContains('nav', cell.id);
@@ -599,10 +599,7 @@ function _buildNavOverlay() {
 
 // Invisible hitbox for each nav cell — always built so cells are always clickable
 function _buildNavHitboxes() {
-  while (navHitboxGroup.children.length) {
-    const o = navHitboxGroup.children[0]; navHitboxGroup.remove(o);
-    o.geometry.dispose();
-  }
+  _clearGroup(navHitboxGroup);
   const geo = new THREE.BoxGeometry(0.9, 0.08, 0.9);
   const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
   ES.navMesh.forEach(cell => {
@@ -719,6 +716,12 @@ function _updateRoomBoundsBox(roomId) {
   roomBoundsBox.scale.set(x1-x0,boundsHeight,z1-z0);
   roomBoundsBox.visible=true;
 }
+function _placeHandle(name, x, y, z, show = true) {
+  const m = handleMeshes[name]; if (!m) return;
+  m.position.set(x, y, z);
+  m.visible = show;
+}
+
 function _updateHandles(id, kind) {
   // Hide corners + y handles by default; shown per-kind below
   CORNER_AXES.forEach(ax => { handleMeshes[ax].visible = false; });
@@ -730,41 +733,38 @@ function _updateHandles(id, kind) {
     handlesGroup.visible=true;
     const {xMin:rxMin,xMax:rxMax,zMin:rzMin,zMax:rzMax}=_bBox(room);
     const elev=(room.elevation||0)+0.4, mx=room.position.x, mz=room.position.z;
-    handleMeshes.xMin.position.set(rxMin-0.5,elev,mz);
-    handleMeshes.xMax.position.set(rxMax+0.5,elev,mz);
-    handleMeshes.zMin.position.set(mx,elev,rzMin-0.5);
-    handleMeshes.zMax.position.set(mx,elev,rzMax+0.5);
-    handleMeshes.xMinzMin.position.set(rxMin-0.5,elev,rzMin-0.5); handleMeshes.xMinzMin.visible=true;
-    handleMeshes.xMinzMax.position.set(rxMin-0.5,elev,rzMax+0.5); handleMeshes.xMinzMax.visible=true;
-    handleMeshes.xMaxzMin.position.set(rxMax+0.5,elev,rzMin-0.5); handleMeshes.xMaxzMin.visible=true;
-    handleMeshes.xMaxzMax.position.set(rxMax+0.5,elev,rzMax+0.5); handleMeshes.xMaxzMax.visible=true;
+    _placeHandle('xMin',    rxMin-0.5, elev, mz);
+    _placeHandle('xMax',    rxMax+0.5, elev, mz);
+    _placeHandle('zMin',    mx,        elev, rzMin-0.5);
+    _placeHandle('zMax',    mx,        elev, rzMax+0.5);
+    _placeHandle('xMinzMin',rxMin-0.5, elev, rzMin-0.5);
+    _placeHandle('xMinzMax',rxMin-0.5, elev, rzMax+0.5);
+    _placeHandle('xMaxzMin',rxMax+0.5, elev, rzMin-0.5);
+    _placeHandle('xMaxzMax',rxMax+0.5, elev, rzMax+0.5);
   } else if (kind === 'brush') {
     const b=ES.brushes.find(b=>b.id===id);
     if (!b) { handlesGroup.visible=false; return; }
     handlesGroup.visible=true;
     const {xMin,xMax,yMin,yMax,zMin,zMax}=_bBox(b);
     const mx=b.position.x, mz=b.position.z, my=b.position.y;
-    handleMeshes.xMin.position.set(xMin-0.5,my,mz);
-    handleMeshes.xMax.position.set(xMax+0.5,my,mz);
-    handleMeshes.zMin.position.set(mx,my,zMin-0.5);
-    handleMeshes.zMax.position.set(mx,my,zMax+0.5);
-    handleMeshes.yMin.position.set(mx,yMin,mz); handleMeshes.yMin.visible=true;
-    handleMeshes.yMax.position.set(mx,yMax,mz); handleMeshes.yMax.visible=true;
-    // XZ corners (Top view)
-    handleMeshes.xMinzMin.position.set(xMin-0.5,my,zMin-0.5); handleMeshes.xMinzMin.visible=true;
-    handleMeshes.xMinzMax.position.set(xMin-0.5,my,zMax+0.5); handleMeshes.xMinzMax.visible=true;
-    handleMeshes.xMaxzMin.position.set(xMax+0.5,my,zMin-0.5); handleMeshes.xMaxzMin.visible=true;
-    handleMeshes.xMaxzMax.position.set(xMax+0.5,my,zMax+0.5); handleMeshes.xMaxzMax.visible=true;
-    // XY corners (Front view)
-    handleMeshes.xMinyMin.position.set(xMin-0.5,yMin,mz); handleMeshes.xMinyMin.visible=true;
-    handleMeshes.xMinyMax.position.set(xMin-0.5,yMax,mz); handleMeshes.xMinyMax.visible=true;
-    handleMeshes.xMaxyMin.position.set(xMax+0.5,yMin,mz); handleMeshes.xMaxyMin.visible=true;
-    handleMeshes.xMaxyMax.position.set(xMax+0.5,yMax,mz); handleMeshes.xMaxyMax.visible=true;
-    // ZY corners (Side view)
-    handleMeshes.zMinyMin.position.set(mx,yMin,zMin-0.5); handleMeshes.zMinyMin.visible=true;
-    handleMeshes.zMinyMax.position.set(mx,yMax,zMin-0.5); handleMeshes.zMinyMax.visible=true;
-    handleMeshes.zMaxyMin.position.set(mx,yMin,zMax+0.5); handleMeshes.zMaxyMin.visible=true;
-    handleMeshes.zMaxyMax.position.set(mx,yMax,zMax+0.5); handleMeshes.zMaxyMax.visible=true;
+    _placeHandle('xMin',    xMin-0.5, my, mz);
+    _placeHandle('xMax',    xMax+0.5, my, mz);
+    _placeHandle('zMin',    mx,       my, zMin-0.5);
+    _placeHandle('zMax',    mx,       my, zMax+0.5);
+    _placeHandle('yMin',    mx,       yMin, mz);
+    _placeHandle('yMax',    mx,       yMax, mz);
+    _placeHandle('xMinzMin',xMin-0.5, my, zMin-0.5);
+    _placeHandle('xMinzMax',xMin-0.5, my, zMax+0.5);
+    _placeHandle('xMaxzMin',xMax+0.5, my, zMin-0.5);
+    _placeHandle('xMaxzMax',xMax+0.5, my, zMax+0.5);
+    _placeHandle('xMinyMin',xMin-0.5, yMin, mz);
+    _placeHandle('xMinyMax',xMin-0.5, yMax, mz);
+    _placeHandle('xMaxyMin',xMax+0.5, yMin, mz);
+    _placeHandle('xMaxyMax',xMax+0.5, yMax, mz);
+    _placeHandle('zMinyMin',mx, yMin, zMin-0.5);
+    _placeHandle('zMinyMax',mx, yMax, zMin-0.5);
+    _placeHandle('zMaxyMin',mx, yMin, zMax+0.5);
+    _placeHandle('zMaxyMax',mx, yMax, zMax+0.5);
   } else {
     handlesGroup.visible=false;
   }
@@ -788,6 +788,17 @@ const _vpHandleAxes = {
   top:   ['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'],
   front: ['xMin','xMax','yMin','yMax','xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'],
   side:  ['zMin','zMax','yMin','yMax','zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'],
+};
+const _vpHideAxes = {
+  top:   ['yMin','yMax',
+          'xMinyMin','xMinyMax','xMaxyMin','xMaxyMax',   // XY corners only for Front
+          'zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'],  // ZY corners only for Side
+  front: ['zMin','zMax',
+          'xMinzMin','xMinzMax','xMaxzMin','xMaxzMax',   // XZ corners only for Top
+          'zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'],  // ZY corners only for Side
+  side:  ['xMin','xMax',
+          'xMinzMin','xMinzMax','xMaxzMin','xMaxzMax',   // XZ corners only for Top
+          'xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'],  // XY corners only for Front
 };
 function _raycastHandles(mouseX, mouseY, viewport) {
   if (!handlesGroup.visible) return null;
@@ -865,7 +876,7 @@ const _vpLabels = { top:'Top (XZ)', front:'Front (XY)', side:'Side (ZY)', persp:
 let _ctxViewport = null;
 
 // Which grids are visible in the 3D (persp) view
-const _perspGridVis = { xz: true, xy: false, zy: false };
+const _perspGridVis = { xz: true, xy: true, zy: true };
 
 function _showCtxMenu(viewport, screenX, screenY) {
   _ctxViewport = viewport;
@@ -1152,53 +1163,27 @@ function _handleResizeDrag(mouseX, mouseY, viewport) {
   rebuildLevel();
 }
 
-function _onMouseMove(mouseX, mouseY, deltaX, deltaY) {
-  // Use activeViewport (locked on mousedown) when a button is held so drags don't
-  // jump viewport mid-gesture.  For plain hover, always compute fresh.
-  const hoverViewport = getViewportAt(mouseX, mouseY);
-  const viewport = (mouseButtons.left || mouseButtons.middle || mouseButtons.right)
-    ? (activeViewport || hoverViewport)
-    : hoverViewport;
-  _setVPHighlight(hoverViewport);
-
-  if (_dragHandle && mouseButtons.left) { _handleResizeDrag(mouseX, mouseY, viewport); return; }
-
-  // Selection move — use whichever viewport the drag started in
-  if (_dragMove && mouseButtons.left && _dragDistance > DRAG_THRESHOLD) {
-    const dragViewport = _dragMove.vp;
-    if (dragViewport==='top') {
-      const worldPos=topToWorld(mouseX,mouseY); if(!worldPos) return;
-      _applyMoveDelta(Math.round(worldPos.x-_dragMove.worldStart.x), Math.round(worldPos.z-_dragMove.worldStart.z), 0);
-    } else if (dragViewport==='front') {
-      const worldPos=frontToWorld(mouseX,mouseY); if(!worldPos) return;
-      _applyMoveDelta(Math.round(worldPos.x-_dragMove.worldStart.x), 0, _round2dp(worldPos.y-_dragMove.worldStart.y));
-    } else if (dragViewport==='side') {
-      const worldPos=sideToWorld(mouseX,mouseY); if(!worldPos) return;
-      _applyMoveDelta(0, Math.round(worldPos.z-_dragMove.worldStart.z), _round2dp(worldPos.y-_dragMove.worldStart.y));
-    }
-    return;
+function _handleMoveDrag(mouseX, mouseY, dragViewport) {
+  if (dragViewport==='top') {
+    const worldPos=topToWorld(mouseX,mouseY); if(!worldPos) return;
+    _applyMoveDelta(Math.round(worldPos.x-_dragMove.worldStart.x), Math.round(worldPos.z-_dragMove.worldStart.z), 0);
+  } else if (dragViewport==='front') {
+    const worldPos=frontToWorld(mouseX,mouseY); if(!worldPos) return;
+    _applyMoveDelta(Math.round(worldPos.x-_dragMove.worldStart.x), 0, _round2dp(worldPos.y-_dragMove.worldStart.y));
+  } else if (dragViewport==='side') {
+    const worldPos=sideToWorld(mouseX,mouseY); if(!worldPos) return;
+    _applyMoveDelta(0, Math.round(worldPos.z-_dragMove.worldStart.z), _round2dp(worldPos.y-_dragMove.worldStart.y));
   }
+}
 
-  // Marquee
-  if (_dragMarquee && mouseButtons.left && _dragDistance > DRAG_THRESHOLD) {
-    _updateMarqueeRect(_dragMarquee.startCSS, {x:mouseX,y:mouseY});
-  }
+function _handleOrthoPan(deltaX, deltaY, viewport) {
+  const panScale=orthoZoom/(canvas.clientWidth/2)*3;
+  if(viewport==='top')   { topPanX-=deltaX*panScale; topPanZ-=deltaY*panScale; _applyTopCam(); }
+  if(viewport==='front') { frontPanX-=deltaX*panScale; frontPanY+=deltaY*panScale; _applyFrontCam(); }
+  if(viewport==='side')  { sidePanZ-=deltaX*panScale; sidePanY+=deltaY*panScale; _applySideCam(); }
+}
 
-  // Persp right-drag look
-  if (mouseButtons.right && viewport==='persp') {
-    perspYaw  -=deltaX*0.005;
-    perspPitch=Math.max(-1.4,Math.min(1.4,perspPitch-deltaY*0.005));
-    _applyPerspCam();
-  }
-
-  // Ortho pan — middle-drag or right-drag (non-persp)
-  if (mouseButtons.middle || (mouseButtons.right && viewport!=='persp')) {
-    const panScale=orthoZoom/(canvas.clientWidth/2)*3;
-    if(viewport==='top')   { topPanX-=deltaX*panScale; topPanZ-=deltaY*panScale; _applyTopCam(); }
-    if(viewport==='front') { frontPanX-=deltaX*panScale; frontPanY+=deltaY*panScale; _applyFrontCam(); }
-    if(viewport==='side')  { sidePanZ-=deltaX*panScale; sidePanY+=deltaY*panScale; _applySideCam(); }
-  }
-
+function _updateCursorAndHover(mouseX, mouseY, viewport) {
   // Room / brush draw
   if (mouseButtons.left && (ES.tool==='room'||ES.tool==='brush') && ES.drawing && viewport==='top') {
     const worldPos=topToWorld(mouseX,mouseY);
@@ -1218,7 +1203,6 @@ function _onMouseMove(mouseX, mouseY, deltaX, deltaY) {
     } else {
       const handleType=_raycastHandles(mouseX,mouseY,viewport);
       if (handleType) {
-        // Corner handles → diagonal resize; edge handles → axis resize
         const isCorner=CORNER_AXES.includes(handleType);
         const isX=(handleType==='xMin'||handleType==='xMax');
         const isY=(handleType==='yMin'||handleType==='yMax');
@@ -1237,6 +1221,36 @@ function _onMouseMove(mouseX, mouseY, deltaX, deltaY) {
     const worldPos=topToWorld(mouseX,mouseY);
     if(worldPos) document.getElementById('coord-top').textContent=`X ${worldPos.x.toFixed(1)}  Z ${worldPos.z.toFixed(1)}`;
   }
+}
+
+function _onMouseMove(mouseX, mouseY, deltaX, deltaY) {
+  const hoverViewport = getViewportAt(mouseX, mouseY);
+  const viewport = (mouseButtons.left || mouseButtons.middle || mouseButtons.right)
+    ? (activeViewport || hoverViewport)
+    : hoverViewport;
+  _setVPHighlight(hoverViewport);
+
+  if (_dragHandle && mouseButtons.left) { _handleResizeDrag(mouseX, mouseY, viewport); return; }
+
+  if (_dragMove && mouseButtons.left && _dragDistance > DRAG_THRESHOLD) {
+    _handleMoveDrag(mouseX, mouseY, _dragMove.vp); return;
+  }
+
+  if (_dragMarquee && mouseButtons.left && _dragDistance > DRAG_THRESHOLD) {
+    _updateMarqueeRect(_dragMarquee.startCSS, {x:mouseX,y:mouseY});
+  }
+
+  if (mouseButtons.right && viewport==='persp') {
+    perspYaw  -=deltaX*0.005;
+    perspPitch=Math.max(-1.4,Math.min(1.4,perspPitch-deltaY*0.005));
+    _applyPerspCam();
+  }
+
+  if (mouseButtons.middle || (mouseButtons.right && viewport!=='persp')) {
+    _handleOrthoPan(deltaX, deltaY, viewport);
+  }
+
+  _updateCursorAndHover(mouseX, mouseY, viewport);
 }
 
 // ── Move drag helpers ─────────────────────────────────────────────────────────
@@ -1371,17 +1385,19 @@ function _undo() {
   if (!ES.entities)   ES.entities=[];
   rebuildLevel(); _showPropsForSelection(); _setStatus('Undo');
 }
+function _removeFromES(kind, id) {
+  if      (kind==='room')       ES.rooms          = ES.rooms.filter(r=>r.id!==id);
+  else if (kind==='standalone') ES.standaloneTiles = ES.standaloneTiles.filter(t=>t.id!==id);
+  else if (kind==='elevated')   ES.elevatedTiles   = ES.elevatedTiles.filter(e=>e.id!==id);
+  else if (kind==='brush')      ES.brushes         = ES.brushes.filter(b=>b.id!==id);
+  else if (kind==='entity')     ES.entities        = ES.entities.filter(e=>e.id!==id);
+  else if (kind==='nav')        ES.navMesh         = ES.navMesh.filter(c=>c.id!==id);
+}
+
 function _deleteSelected() {
   if (!ES.selection.length) return;
   _pushUndo();
-  ES.selection.forEach(s => {
-    if(s.kind==='room')            ES.rooms=ES.rooms.filter(r=>r.id!==s.id);
-    else if(s.kind==='standalone') ES.standaloneTiles=ES.standaloneTiles.filter(t=>t.id!==s.id);
-    else if(s.kind==='elevated') ES.elevatedTiles=ES.elevatedTiles.filter(e=>e.id!==s.id);
-    else if(s.kind==='brush') ES.brushes=ES.brushes.filter(b=>b.id!==s.id);
-    else if(s.kind==='entity') ES.entities=ES.entities.filter(e=>e.id!==s.id);
-    else if(s.kind==='nav') ES.navMesh=ES.navMesh.filter(c=>c.id!==s.id);
-  });
+  ES.selection.forEach(s => _removeFromES(s.kind, s.id));
   // Remove deleted items from any groups; prune empty groups
   ES.groups.forEach(g => {
     g.items = g.items.filter(ref => {
@@ -1586,15 +1602,15 @@ function _buildBatchHTML(kinds, items, count) {
 }
 
 function _bindBatchHandlers(kinds, items) {
-  const bBN    = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseFloat(el.value); if(isNaN(v))return; _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
-  const bBNInt = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=Math.round(parseFloat(el.value)); if(isNaN(v))return; _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
-  const bBC    = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseInt(el.value.replace('#',''),16); _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
-  const bBS    = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ if(!el.value)return; _pushUndo(); items.forEach(i=>{i.data[field]=el.value;}); rebuildLevel(); }); };
+  const batchNum    = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseFloat(el.value); if(isNaN(v))return; _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
+  const batchNumInt = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=Math.round(parseFloat(el.value)); if(isNaN(v))return; _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
+  const batchColor  = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ const v=parseInt(el.value.replace('#',''),16); _pushUndo(); items.forEach(i=>{i.data[field]=v;}); rebuildLevel(); }); };
+  const batchSelect = (id,field) => { const el=document.getElementById(id); if(!el)return; el.addEventListener('change',()=>{ if(!el.value)return; _pushUndo(); items.forEach(i=>{i.data[field]=el.value;}); rebuildLevel(); }); };
 
   const sameKind=kinds.length===1, kind=kinds[0];
   if (sameKind) {
     if (kind==='room') {
-      bBN('bm-elev','elevation');
+      batchNum('bm-elev','elevation');
       const palEl=document.getElementById('bm-pal');
       const pickEl=document.getElementById('bm-swatch-pick');
       if (palEl&&pickEl) {
@@ -1631,11 +1647,11 @@ function _bindBatchHandlers(kinds, items) {
         });
         document.getElementById('bm-addpal')?.addEventListener('click',()=>{ _pushUndo(); items.forEach(i=>{if(!i.data.palette)i.data.palette=[];i.data.palette.push(DEFAULT_FACE_COLOR);}); rebuildLevel(); _showPropsForSelection(); });
       }
-    } else if (kind==='standalone') { bBN('bm-elev','elevation'); bBC('bm-color','color'); }
-    else if (kind==='elevated')     { bBN('bm-elev','elevation'); bBS('bm-type','type'); }
+    } else if (kind==='standalone') { batchNum('bm-elev','elevation'); batchColor('bm-color','color'); }
+    else if (kind==='elevated')     { batchNum('bm-elev','elevation'); batchSelect('bm-type','type'); }
     else if (kind==='nav') {
-      bBN('bm-elev','elevation');
-      bBNInt('bm-cost','cost');
+      batchNum('bm-elev','elevation');
+      batchNumInt('bm-cost','cost');
       document.getElementById('bm-navgroup')?.addEventListener('change',e=>{
         _pushUndo();
         const gid=e.target.value||undefined;
@@ -1663,11 +1679,11 @@ function _bindBatchHandlers(kinds, items) {
       });
     } else if (kind==='entity') {
       const etypes=[...new Set(items.map(i=>i.data.entityType))];
-      if (etypes.length===1&&etypes[0]==='decor') { bBC('bm-color','color'); bBN('bm-w','w'); bBN('bm-h','h'); bBN('bm-d','d'); }
-      else if (etypes.length===1&&etypes[0]==='light') { bBC('bm-color','color'); bBN('bm-int','intensity'); bBN('bm-dist','distance'); }
+      if (etypes.length===1&&etypes[0]==='decor') { batchColor('bm-color','color'); batchNum('bm-w','w'); batchNum('bm-h','h'); batchNum('bm-d','d'); }
+      else if (etypes.length===1&&etypes[0]==='light') { batchColor('bm-color','color'); batchNum('bm-int','intensity'); batchNum('bm-dist','distance'); }
     }
   } else {
-    bBN('bm-elev','elevation');
+    batchNum('bm-elev','elevation');
   }
 }
 
@@ -1738,8 +1754,7 @@ function _getItemDisplay(kind, id) {
   }
 }
 
-function _refreshLayersList() {
-  // Build set of keys that belong to a group
+function _buildLayersHTML() {
   const groupedKeys = new Set();
   ES.groups.forEach(g => g.items.forEach(r => groupedKeys.add(`${r.kind}::${r.id}`)));
 
@@ -1755,7 +1770,6 @@ function _refreshLayersList() {
 
   let html = '';
 
-  // ── Groups ──
   ES.groups.forEach(g => {
     const anySel = g.items.some(r => selContains(r.kind, r.id));
     html += `<div class="group-header${anySel?' sel':''}" data-group-id="${_escHtml(g.id)}">
@@ -1771,7 +1785,6 @@ function _refreshLayersList() {
     }
   });
 
-  // ── Ungrouped items ──
   const allItems = [
     ...ES.rooms.map(r=>({kind:'room',id:r.id})),
     ...ES.brushes.map(b=>({kind:'brush',id:b.id})),
@@ -1782,7 +1795,6 @@ function _refreshLayersList() {
   allItems.filter(({kind,id})=>!groupedKeys.has(`${kind}::${id}`))
           .forEach(({kind,id})=>{ html += itemRowHTML(kind, id, false); });
 
-  // ── Virtual _navmesh folder ──
   if (ES.navMesh.length || ES.navGroups.length) {
     const anySel = ES.navMesh.some(c=>selContains('nav',c.id));
     html += `<div class="group-header nav-folder-header${anySel?' sel':''}" data-nav-folder="1">
@@ -1793,7 +1805,6 @@ function _refreshLayersList() {
     </div>`;
     if (!_navFolderCollapsed) {
       html += `<div class="group-body">`;
-      // sub-groups
       ES.navGroups.forEach(g => {
         const gCells = ES.navMesh.filter(c=>c.navGroupId===g.id);
         const gSel   = gCells.some(c=>selContains('nav',c.id));
@@ -1809,15 +1820,15 @@ function _refreshLayersList() {
           html += `</div>`;
         }
       });
-      // ungrouped nav cells
       ES.navMesh.filter(c=>!c.navGroupId).forEach(c=>{ html+=itemRowHTML('nav',c.id,true); });
       html += `</div>`;
     }
   }
 
-  layersList.innerHTML = html;
+  return html;
+}
 
-  // ── Bind: item click ──
+function _bindLayersHandlers() {
   layersList.querySelectorAll('.layer-item').forEach(el => {
     el.addEventListener('click', e => {
       const {kind, id} = el.dataset;
@@ -1828,13 +1839,11 @@ function _refreshLayersList() {
     });
   });
 
-  // ── Bind: group interactions ──
   layersList.querySelectorAll('.group-header').forEach(headerEl => {
     const gId = headerEl.dataset.groupId;
     const g   = ES.groups.find(g => g.id === gId);
     if (!g) return;
 
-    // Click on header → select all items in group
     headerEl.addEventListener('click', e => {
       if (e.target.classList.contains('group-del') ||
           e.target.classList.contains('group-toggle') ||
@@ -1846,14 +1855,12 @@ function _refreshLayersList() {
       _setStatus(`"${g.name}" — ${g.items.length} item(s) selected`);
     });
 
-    // Toggle collapse
     headerEl.querySelector('.group-toggle')?.addEventListener('click', e => {
       e.stopPropagation();
       g.collapsed = !g.collapsed;
       _refreshLayersList();
     });
 
-    // Double-click name → inline rename
     headerEl.querySelector('.group-name')?.addEventListener('dblclick', e => {
       e.stopPropagation();
       const span = e.currentTarget;
@@ -1871,7 +1878,6 @@ function _refreshLayersList() {
       });
     });
 
-    // × button → ungroup (keep items, remove group)
     headerEl.querySelector('.group-del')?.addEventListener('click', e => {
       e.stopPropagation();
       _pushUndo();
@@ -1881,7 +1887,6 @@ function _refreshLayersList() {
     });
   });
 
-  // ── Bind: virtual _navmesh folder ──
   const navFolderEl = layersList.querySelector('[data-nav-folder]');
   if (navFolderEl) {
     navFolderEl.addEventListener('click', e => {
@@ -1895,7 +1900,6 @@ function _refreshLayersList() {
         return;
       }
       if (e.target.closest('.group-toggle')) { e.stopPropagation(); _navFolderCollapsed=!_navFolderCollapsed; _refreshLayersList(); return; }
-      // Click header → select all nav cells
       const ctrl=e.ctrlKey||e.metaKey;
       if(!ctrl) selClear();
       ES.navMesh.forEach(c=>selAdd('nav',c.id));
@@ -1903,7 +1907,6 @@ function _refreshLayersList() {
     });
   }
 
-  // ── Bind: nav sub-groups ──
   layersList.querySelectorAll('[data-nav-group-id]').forEach(hEl => {
     const gId=hEl.dataset.navGroupId;
     const g=ES.navGroups.find(g=>g.id===gId); if(!g) return;
@@ -1916,7 +1919,6 @@ function _refreshLayersList() {
         _refreshLayersList(); return;
       }
       if (e.target.closest('.group-toggle')) { e.stopPropagation(); g.collapsed=!g.collapsed; _refreshLayersList(); return; }
-      // Double-click rename
       const ctrl=e.ctrlKey||e.metaKey;
       if(!ctrl) selClear();
       ES.navMesh.filter(c=>c.navGroupId===gId).forEach(c=>selAdd('nav',c.id));
@@ -1932,6 +1934,11 @@ function _refreshLayersList() {
       inp.addEventListener('keydown',ev=>{ if(ev.key==='Enter'){ev.preventDefault();commit();} if(ev.key==='Escape')_refreshLayersList(); ev.stopPropagation(); });
     });
   });
+}
+
+function _refreshLayersList() {
+  layersList.innerHTML = _buildLayersHTML();
+  _bindLayersHandlers();
 }
 
 // ── Status ────────────────────────────────────────────────────────────────────
@@ -2500,17 +2507,6 @@ function _renderVP(viewportName, camera, isLive) {
   scene.overrideMaterial = null;
   if(!isLive) renderer.clearDepth(); // helpers (grid, handles, selection) always on top in ortho
   // Each ortho view only shows handles for its two active axes — hide depth-axis handles per pass
-  const _vpHideAxes = {
-    top:   ['yMin','yMax',
-            'xMinyMin','xMinyMax','xMaxyMin','xMaxyMax',   // XY corners only for Front
-            'zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'],  // ZY corners only for Side
-    front: ['zMin','zMax',
-            'xMinzMin','xMinzMax','xMaxzMin','xMaxzMax',   // XZ corners only for Top
-            'zMinyMin','zMinyMax','zMaxyMin','zMaxyMax'],  // ZY corners only for Side
-    side:  ['xMin','xMax',
-            'xMinzMin','xMinzMax','xMaxzMin','xMaxzMax',   // XZ corners only for Top
-            'xMinyMin','xMinyMax','xMaxyMin','xMaxyMax'],  // XY corners only for Front
-  };
   const _axesToHide = _vpHideAxes[viewportName] || [];
   const _savedVis = {};
   _axesToHide.forEach(ax=>{ _savedVis[ax]=handleMeshes[ax]?.visible; if(handleMeshes[ax]) handleMeshes[ax].visible=false; });
