@@ -865,7 +865,7 @@ const _vpLabels = { top:'Top (XZ)', front:'Front (XY)', side:'Side (ZY)', persp:
 let _ctxViewport = null;
 
 // Which grids are visible in the 3D (persp) view
-const _perspGridVis = { xz: true, xy: true, zy: true };
+const _perspGridVis = { xz: true, xy: false, zy: false };
 
 function _showCtxMenu(viewport, screenX, screenY) {
   _ctxViewport = viewport;
