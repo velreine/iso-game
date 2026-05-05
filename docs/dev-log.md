@@ -30,6 +30,8 @@ A step-by-step record of every feature added to the game, with the most importan
 25. [Stage 25 — editor.js Refactor: Precision Helper, Shared-Value Helper, Extract Resize Drag (v1.6.7)](#stage-25)
 26. [Stage 26 — editor.js Refactor: Rename Abbreviations to Full Names (v1.6.8)](#stage-26)
 27. [Stage 27 — Brush/Room Data Format: position + scale (v1.7.0)](#stage-27)
+28. [Stage 28 — Fix Brush Resize Minimum Scale (v1.7.1)](#stage-28)
+29. [Stage 29 — Fix Side-View zMin/zMax Handle Drag (v1.7.2)](#stage-29)
 
 ---
 
@@ -1976,3 +1978,77 @@ function _setFromBBox(obj, xMin, xMax, yMin, yMax, zMin, zMax) {
 - `editor.js` — `_buildRoom`, `_buildRampRoom`, `_buildBrushMesh`, `_compileNavMesh`, `_updateRoomBoundsBox`, `_updateHandles`, `_handleResizeDrag` (all 4 branches), `_applyMoveDelta`, `_moveSelection`, `_duplicateSelection`, marquee selection, brush creation dialog, room and brush props panels.
 - `levels/level1.js` — `_bakeNav` updated; all 26 brush objects converted.
 - `levels/level2.js` — all 26 brush objects converted (JSON format).
+
+---
+
+<a name="stage-28"></a>
+## Stage 28 — Fix Brush Resize Minimum Scale (v1.7.1)
+
+### Goal
+
+Brush resize handles could not shrink scale X or Z below 2. Dragging a handle all the way inward always stopped one tile short.
+
+### Root cause
+
+`_handleResizeDrag` clamped each edge with a ±1 guard:
+
+```js
+case 'xMin': bb.xMin = Math.min(snappedX, bb.xMax - 1); break;
+case 'xMax': bb.xMax = Math.max(snappedX, bb.xMin + 1); break;
+```
+
+The intent was "don't let xMin cross xMax", but the `-1`/`+1` meant the minimum span was always 1. `_setFromBBox` computes `scale.x = xMax - xMin + 1`, so a span of 1 yields scale 2 — never 1.
+
+### Fix
+
+Remove the offsets. The clamp `Math.min(snappedX, bb.xMax)` still prevents xMin from exceeding xMax, so scale never drops below 1 (`xMax - xMin + 1 ≥ 1` when `xMax ≥ xMin`).
+
+```js
+case 'xMin': bb.xMin = Math.min(snappedX, bb.xMax); break;
+case 'xMax': bb.xMax = Math.max(snappedX, bb.xMin); break;
+case 'zMin': bb.zMin = Math.min(snappedZ, bb.zMax); break;
+case 'zMax': bb.zMax = Math.max(snappedZ, bb.zMin); break;
+```
+
+Applied to all 16 handle cases (top XZ, front XY corners, side ZY corners).
+
+---
+
+<a name="stage-29"></a>
+## Stage 29 — Fix Side-View zMin/zMax Handle Drag (v1.7.2)
+
+### Goal
+
+`zMin` and `zMax` edge handles shown in the Side (ZY) view did nothing when dragged. The same latent bug also affected `xMin`/`xMax` in the Front (XY) view.
+
+### Root cause
+
+`_handleResizeDrag` routes handle types into four `if/else` branches. The first branch catches `xMin`, `xMax`, `zMin`, `zMax`, and all XZ corner handles — and unconditionally calls `topToWorld`:
+
+```js
+const worldPos = topToWorld(mouseX, mouseY); if (!worldPos) return;
+```
+
+`topToWorld` maps mouse coordinates using the top-view camera. When the mouse is in the side viewport, it is outside the top quadrant, so `topToWorld` returns `null` and the handler exits immediately — the drag appears completely dead.
+
+### Fix
+
+Check `viewport` before calling `toWorld`. Edge-only handles that appear in non-top views are routed to the correct conversion:
+
+```js
+if (viewport==='side' && (handleType==='zMin'||handleType==='zMax')) {
+  const worldPos = sideToWorld(mouseX, mouseY); if (!worldPos) return;
+  const snappedZ = snapGrid(worldPos.z, 'side');
+  ...
+} else if (viewport==='front' && (handleType==='xMin'||handleType==='xMax')) {
+  const worldPos = frontToWorld(mouseX, mouseY); if (!worldPos) return;
+  const snappedX = snapGrid(worldPos.x, 'front');
+  ...
+} else {
+  // top view (and XZ corners, which only appear in top)
+  const worldPos = topToWorld(mouseX, mouseY); if (!worldPos) return;
+  ...
+}
+```
+
+XZ corner handles (`xMinzMin`, etc.) are only shown in the top view per `_vpHandleAxes`, so they always hit the `else` branch correctly.

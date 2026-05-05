@@ -1080,18 +1080,32 @@ function _onLeftUp(ctrl) {
 function _handleResizeDrag(mouseX, mouseY, viewport) {
   const obj=_dragHandle.obj, handleType=_dragHandle.type;
   if (['xMin','xMax','zMin','zMax','xMinzMin','xMinzMax','xMaxzMin','xMaxzMax'].includes(handleType)) {
-    const worldPos=topToWorld(mouseX,mouseY); if (!worldPos) return;
-    const snappedX=snapGrid(worldPos.x,'top'), snappedZ=snapGrid(worldPos.z,'top');
     const bb=_bBox(obj);
-    switch (handleType) {
-      case 'xMin':     bb.xMin=Math.min(snappedX,bb.xMax-1); break;
-      case 'xMax':     bb.xMax=Math.max(snappedX,bb.xMin+1); break;
-      case 'zMin':     bb.zMin=Math.min(snappedZ,bb.zMax-1); break;
-      case 'zMax':     bb.zMax=Math.max(snappedZ,bb.zMin+1); break;
-      case 'xMinzMin': bb.xMin=Math.min(snappedX,bb.xMax-1); bb.zMin=Math.min(snappedZ,bb.zMax-1); break;
-      case 'xMinzMax': bb.xMin=Math.min(snappedX,bb.xMax-1); bb.zMax=Math.max(snappedZ,bb.zMin+1); break;
-      case 'xMaxzMin': bb.xMax=Math.max(snappedX,bb.xMin+1); bb.zMin=Math.min(snappedZ,bb.zMax-1); break;
-      case 'xMaxzMax': bb.xMax=Math.max(snappedX,bb.xMin+1); bb.zMax=Math.max(snappedZ,bb.zMin+1); break;
+    // Edge-only handles can appear in non-top views: zMin/zMax in side, xMin/xMax in front.
+    // Route to the correct toWorld function so topToWorld doesn't return null from the wrong viewport.
+    if (viewport==='side' && (handleType==='zMin'||handleType==='zMax')) {
+      const worldPos=sideToWorld(mouseX,mouseY); if (!worldPos) return;
+      const snappedZ=snapGrid(worldPos.z,'side');
+      if (handleType==='zMin') bb.zMin=Math.min(snappedZ,bb.zMax);
+      else                     bb.zMax=Math.max(snappedZ,bb.zMin);
+    } else if (viewport==='front' && (handleType==='xMin'||handleType==='xMax')) {
+      const worldPos=frontToWorld(mouseX,mouseY); if (!worldPos) return;
+      const snappedX=snapGrid(worldPos.x,'front');
+      if (handleType==='xMin') bb.xMin=Math.min(snappedX,bb.xMax);
+      else                     bb.xMax=Math.max(snappedX,bb.xMin);
+    } else {
+      const worldPos=topToWorld(mouseX,mouseY); if (!worldPos) return;
+      const snappedX=snapGrid(worldPos.x,'top'), snappedZ=snapGrid(worldPos.z,'top');
+      switch (handleType) {
+        case 'xMin':     bb.xMin=Math.min(snappedX,bb.xMax); break;
+        case 'xMax':     bb.xMax=Math.max(snappedX,bb.xMin); break;
+        case 'zMin':     bb.zMin=Math.min(snappedZ,bb.zMax); break;
+        case 'zMax':     bb.zMax=Math.max(snappedZ,bb.zMin); break;
+        case 'xMinzMin': bb.xMin=Math.min(snappedX,bb.xMax); bb.zMin=Math.min(snappedZ,bb.zMax); break;
+        case 'xMinzMax': bb.xMin=Math.min(snappedX,bb.xMax); bb.zMax=Math.max(snappedZ,bb.zMin); break;
+        case 'xMaxzMin': bb.xMax=Math.max(snappedX,bb.xMin); bb.zMin=Math.min(snappedZ,bb.zMax); break;
+        case 'xMaxzMax': bb.xMax=Math.max(snappedX,bb.xMin); bb.zMax=Math.max(snappedZ,bb.zMin); break;
+      }
     }
     _setFromBBox(obj,bb.xMin,bb.xMax,bb.yMin,bb.yMax,bb.zMin,bb.zMax);
     _setStatus(`${obj.id}: x[${bb.xMin}→${bb.xMax}]  z[${bb.zMin}→${bb.zMax}]`);
@@ -1108,10 +1122,10 @@ function _handleResizeDrag(mouseX, mouseY, viewport) {
     const snappedX=snapGrid(worldPos.x,'front'), snappedY=_round2dp(worldPos.y);
     const bb=_bBox(obj);
     switch (handleType) {
-      case 'xMinyMin': bb.xMin=Math.min(snappedX,bb.xMax-1); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
-      case 'xMinyMax': bb.xMin=Math.min(snappedX,bb.xMax-1); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
-      case 'xMaxyMin': bb.xMax=Math.max(snappedX,bb.xMin+1); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
-      case 'xMaxyMax': bb.xMax=Math.max(snappedX,bb.xMin+1); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
+      case 'xMinyMin': bb.xMin=Math.min(snappedX,bb.xMax); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
+      case 'xMinyMax': bb.xMin=Math.min(snappedX,bb.xMax); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
+      case 'xMaxyMin': bb.xMax=Math.max(snappedX,bb.xMin); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
+      case 'xMaxyMax': bb.xMax=Math.max(snappedX,bb.xMin); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
     }
     _setFromBBox(obj,bb.xMin,bb.xMax,bb.yMin,bb.yMax,bb.zMin,bb.zMax);
     _setStatus(`${obj.id}: x[${bb.xMin}→${bb.xMax}]  y[${bb.yMin}→${bb.yMax}]`);
@@ -1120,10 +1134,10 @@ function _handleResizeDrag(mouseX, mouseY, viewport) {
     const snappedZ=snapGrid(worldPos.z,'side'), snappedY=_round2dp(worldPos.y);
     const bb=_bBox(obj);
     switch (handleType) {
-      case 'zMinyMin': bb.zMin=Math.min(snappedZ,bb.zMax-1); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
-      case 'zMinyMax': bb.zMin=Math.min(snappedZ,bb.zMax-1); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
-      case 'zMaxyMin': bb.zMax=Math.max(snappedZ,bb.zMin+1); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
-      case 'zMaxyMax': bb.zMax=Math.max(snappedZ,bb.zMin+1); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
+      case 'zMinyMin': bb.zMin=Math.min(snappedZ,bb.zMax); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
+      case 'zMinyMax': bb.zMin=Math.min(snappedZ,bb.zMax); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
+      case 'zMaxyMin': bb.zMax=Math.max(snappedZ,bb.zMin); bb.yMin=Math.min(snappedY,bb.yMax-0.1); break;
+      case 'zMaxyMax': bb.zMax=Math.max(snappedZ,bb.zMin); bb.yMax=Math.max(snappedY,bb.yMin+0.1); break;
     }
     _setFromBBox(obj,bb.xMin,bb.xMax,bb.yMin,bb.yMax,bb.zMin,bb.zMax);
     _setStatus(`${obj.id}: z[${bb.zMin}→${bb.zMax}]  y[${bb.yMin}→${bb.yMax}]`);

@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.2] - 2026-05-05
+### Fixed
+- **Brush `zMin`/`zMax` edge handles did not work in the Side (ZY) view** — the first branch of `_handleResizeDrag` always called `topToWorld`, which returns `null` when the mouse is outside the top viewport, so side-view Z drags silently no-op'd. Fixed by routing `zMin`/`zMax` to `sideToWorld` when `viewport==='side'`, and `xMin`/`xMax` to `frontToWorld` when `viewport==='front'`. XZ corner handles remain top-only (they are not shown in other views).
+
+## [1.7.1] - 2026-05-05
+### Fixed
+- **Brush resize handles could not shrink scale X or Z below 2** — drag clamps used `bb.xMax-1`/`bb.xMin+1` (and z equivalents) as the opposing-edge limit, so the minimum bbox span was always 1, yielding `scale = span+1 = 2`. Removed the ±1 offsets so handles can reach `xMin==xMax` (scale 1). Applies to all 16 handle cases in `_handleResizeDrag` (top, front, side, and corner handles).
+
 ## [1.7.0] - 2026-05-03
 ### Changed
 - **Brush/room data format: `xMin/xMax/zMin/zMax/yMin/yMax` → `position{x,y,z}` + `scale{x,y,z}`** — all brush and room objects now store a centre `position` and a `scale` instead of six min/max bounds. XZ scale is tile-count (`xMax-xMin+1`); Y scale is world-units (`yMax-yMin`). Added `_bBox(obj)` helper (derives min/max from position/scale for iteration and handle placement) and `_setFromBBox(obj, ...)` (writes back from a mutated bbox, used by all resize drag handlers). Updated `game.js`, `editor.js`, `levels/level1.js`, `levels/level2.js`, and `_bakeNav` in level1. Properties panel for brushes now shows Pos X/Y/Z and Scale X/Y/Z fields. Future rotation field will fit naturally alongside position and scale.
